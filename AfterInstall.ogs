@@ -1,9 +1,10 @@
 [main]
-	//	Install the MCP server's Python dependencies into Origin's PyPackage.
-	//	originpro ships with Origin; mcp/fastmcp/uvicorn/starlette do not. The
-	//	LabTalk `pip` X-function installs into the bundled interpreter's
-	//	PyPackage\Py3 (the same location manage.py puts on PYTHONPATH).
-	//	-chk only installs what is missing. If a corporate proxy blocks pip,
-	//	vendor the wheels and add their folder to PYTHONPATH in manage.py instead.
-	pip -chk mcp fastmcp uvicorn starlette;
+	//	Install the sidecar's Python dependencies into the app's vendor\ folder
+	//	using Origin's bundled python.exe + pip (driven by manage.py setup).
+	//	Origin's PyPackage ships originpro but NOT OriginExt/comtypes (needed for
+	//	EXTERNAL op.attach() over COM) nor the MCP stack, so we install them here.
+	//	If the action variable does not propagate, manage.py defaults to "toggle",
+	//	which also triggers the same dependency install on first start.
+	MCP_ACTION$ = "setup";
+	run -pyf "%@A%@X\manage.py";
 	return;

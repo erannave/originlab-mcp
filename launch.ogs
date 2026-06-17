@@ -29,6 +29,11 @@
 	run -pyf "%@A%@X\manage.py";
 	return;
 
+[setup]	//	(Re)install the sidecar's Python dependencies into vendor\
+	MCP_ACTION$ = "setup";
+	run -pyf "%@A%@X\manage.py";
+	return;
+
 [autostart]	//	Optional: start silently at Origin launch. Wire this into
 	//	Origin's startup (see README) to auto-run the sidecar. Safe to call
 	//	repeatedly — manage.py no-ops if the server is already up.

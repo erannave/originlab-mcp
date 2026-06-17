@@ -48,8 +48,18 @@ HANDSHAKE = os.path.join(HERE, "host.handshake")
 LOCK = os.path.join(HERE, "server.lock")
 LOG = os.path.join(HERE, "sidecar.log")
 BOOTSTRAP = os.path.join(HERE, "mcp_bootstrap.py")
+VENDOR = os.path.join(HERE, "vendor")
 PORT = 8000
 URL = f"http://127.0.0.1:{PORT}/sse"
+
+# Packages the EXTERNAL sidecar needs that Origin's bundled PyPackage lacks.
+# OriginExt is the COM module originpro falls back to for external op.attach()
+# (the embedded _PyOrigin.pyd only loads inside Origin); comtypes is its COM
+# backend. The rest are the MCP server stack. Installed into VENDOR/ via pip and
+# put first on the sidecar's PYTHONPATH.
+DEPS = ["OriginExt", "comtypes", "mcp", "fastmcp", "uvicorn", "starlette"]
+# Folder names that must exist under VENDOR for deps to be considered present.
+DEP_MARKERS = ["OriginExt", "comtypes", "mcp"]
 
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -93,9 +103,44 @@ def _child_env(exe_dir):
     env = dict(os.environ)
     env["PYTHONHOME"] = pydlls
     env["PYTHONPATH"] = os.pathsep.join(
-        [pyzip, os.path.join(pyzip, "site-packages"), pydlls, pypkg]
+        [VENDOR, pyzip, os.path.join(pyzip, "site-packages"), pydlls, pypkg]
     )
     return env
+
+
+def _deps_present():
+    return all(os.path.isdir(os.path.join(VENDOR, m)) for m in DEP_MARKERS)
+
+
+def setup():
+    """Install the sidecar's Python dependencies into VENDOR/ using Origin's
+    bundled python.exe + pip. Blocking (runs on the embedded/UI thread), so it
+    briefly freezes Origin — acceptable for a one-time install."""
+    exe_dir, pyexe = _origin_python()
+    if not os.path.isfile(pyexe):
+        _msg(f"Origin Python not found at {pyexe}")
+        return False
+    os.makedirs(VENDOR, exist_ok=True)
+    env = _child_env(exe_dir)
+    cmd = [pyexe, "-m", "pip", "install", "--upgrade", "--target", VENDOR] + DEPS
+    _slog("pip cmd: " + " ".join(cmd))
+    try:
+        proc = subprocess.run(
+            cmd, env=env, cwd=HERE, capture_output=True, text=True,
+            creationflags=CREATE_NO_WINDOW,
+        )
+    except Exception:
+        _slog("pip run crashed:\n" + traceback.format_exc())
+        _msg("dependency install crashed; see startup.log")
+        return False
+    _slog(f"pip rc={proc.returncode}")
+    _slog("pip stdout:\n" + (proc.stdout or ""))
+    _slog("pip stderr:\n" + (proc.stderr or ""))
+    if proc.returncode == 0 and _deps_present():
+        _msg("dependencies installed")
+        return True
+    _msg(f"dependency install failed (rc={proc.returncode}); see startup.log")
+    return False
 
 
 def _read_lock_pid():
@@ -159,6 +204,12 @@ def start():
     if not os.path.isfile(BOOTSTRAP):
         _msg(f"mcp_bootstrap.py missing at {BOOTSTRAP}")
         return
+
+    # First run: install the sidecar's dependencies (blocks briefly).
+    if not _deps_present():
+        _msg("installing dependencies (first run, may take a minute)…")
+        if not setup():
+            return
 
     # Handshake: host PID (this Origin) + a per-instance token the sidecar
     # verifies after op.attach().
@@ -228,7 +279,9 @@ def main():
     except Exception:
         action = "toggle"
     _slog("action=" + action)
-    if action == "start":
+    if action == "setup":
+        setup()
+    elif action == "start":
         start()
     elif action == "stop":
         stop()
