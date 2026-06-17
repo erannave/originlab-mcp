@@ -43,6 +43,25 @@ for _p in (
     if _p not in sys.path:
         sys.path.append(_p)
 
+# pywin32 fix-up. pip `--target` drops pywin32 into vendor/ but does NOT run the
+# usual .pth/post-install, so `import pywintypes` (pulled in transitively by mcp)
+# fails: pywintypes.py lives in vendor/win32/lib and pywintypes311.dll in
+# vendor/pywin32_system32 — neither is on the path. Wire them up by hand before
+# any import that needs them.
+_VENDOR = os.path.join(HERE, "vendor")
+_sys32 = os.path.join(_VENDOR, "pywin32_system32")
+if os.path.isdir(_sys32):
+    try:
+        os.add_dll_directory(_sys32)
+    except Exception:
+        pass
+    os.environ["PATH"] = _sys32 + os.pathsep + os.environ.get("PATH", "")
+for _sub in ("win32", os.path.join("win32", "lib"), "win32com", "win32comext",
+             "Pythonwin"):
+    _wp = os.path.join(_VENDOR, _sub)
+    if os.path.isdir(_wp) and _wp not in sys.path:
+        sys.path.insert(0, _wp)
+
 
 def _log(msg):
     try:
@@ -147,10 +166,12 @@ def main():
     except Exception as e:
         _log(f"[bootstrap] op.attach() failed: {e}")
 
+    # Import the server (and its transitive deps) BEFORE writing the lock, so a
+    # failed import never leaves a stale lock behind.
+    from server import mcp
+
     _write_lock()
     threading.Thread(target=_watchdog, args=(host_pid,), daemon=True).start()
-
-    from server import mcp
     try:
         _log(f"[bootstrap] starting Origin MCP sidecar "
              f"(transport={transport}, host PID={host_pid}).")
