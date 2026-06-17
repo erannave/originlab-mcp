@@ -18,15 +18,32 @@ The sidecar (mcp_bootstrap.py) self-terminates when this Origin PID dies, so a
 crash/close of Origin never leaves an orphan.
 """
 
-import ctypes
-import glob
 import os
-import random
-import subprocess
+import sys
+import traceback
 
-import originpro as op
+# ── Bulletproof startup logging ────────────────────────────────────────────
+# Written with stdlib only, BEFORE importing originpro, so that even an import
+# failure or a wrong invocation leaves a trace on disk. This is the first thing
+# to check when "clicking the app does nothing".
+try:
+    HERE = os.path.dirname(os.path.abspath(__file__))
+except NameError:  # __file__ not set by some run -pyf paths
+    HERE = os.getcwd()
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+STARTLOG = os.path.join(HERE, "startup.log")
+
+
+def _slog(msg):
+    try:
+        with open(STARTLOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
+
+_slog(f"--- manage.py invoked (cwd={os.getcwd()}, exe={sys.executable}) ---")
+
 HANDSHAKE = os.path.join(HERE, "host.handshake")
 LOCK = os.path.join(HERE, "server.lock")
 LOG = os.path.join(HERE, "sidecar.log")
@@ -37,13 +54,26 @@ URL = f"http://127.0.0.1:{PORT}/sse"
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 
+try:
+    import ctypes
+    import glob
+    import random
+    import subprocess
+
+    import originpro as op
+    _slog("originpro imported OK")
+except Exception:
+    _slog("IMPORT FAILED:\n" + traceback.format_exc())
+    raise
+
 
 def _msg(text):
     """Surface a message in the Origin UI (and stash it in the log)."""
+    _slog("MSG: " + text)
     try:
         op.lt_exec('type -b "Origin MCP: ' + text.replace('"', "'") + '"')
     except Exception:
-        pass
+        _slog("lt_exec(type -b) failed:\n" + traceback.format_exc())
 
 
 def _origin_python():
@@ -122,11 +152,12 @@ def start():
         return
 
     exe_dir, pyexe = _origin_python()
+    _slog(f"exe_dir={exe_dir}  pyexe={pyexe}  exists={os.path.isfile(pyexe)}")
     if not os.path.isfile(pyexe):
         _msg(f"Origin Python not found at {pyexe}")
         return
     if not os.path.isfile(BOOTSTRAP):
-        _msg("mcp_bootstrap.py missing")
+        _msg(f"mcp_bootstrap.py missing at {BOOTSTRAP}")
         return
 
     # Handshake: host PID (this Origin) + a per-instance token the sidecar
@@ -136,7 +167,7 @@ def start():
     try:
         op.lt_exec(f'MCP_HOST_TOKEN$="{token}";')
     except Exception:
-        pass
+        _slog("planting MCP_HOST_TOKEN$ failed:\n" + traceback.format_exc())
     try:
         with open(HANDSHAKE, "w", encoding="utf-8") as f:
             f.write(f"pid={host_pid}\ntoken={token}\n")
@@ -145,9 +176,11 @@ def start():
         return
 
     env = _child_env(exe_dir)
+    _slog("child PYTHONHOME=" + env["PYTHONHOME"])
+    _slog("child PYTHONPATH=" + env["PYTHONPATH"])
     try:
         logf = open(LOG, "a", encoding="utf-8")
-        subprocess.Popen(
+        proc = subprocess.Popen(
             [pyexe, BOOTSTRAP, "sse"],
             env=env,
             cwd=HERE,
@@ -157,8 +190,10 @@ def start():
             creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
             close_fds=True,
         )
+        _slog(f"spawned sidecar child PID={proc.pid}")
     except Exception as e:
         _msg(f"failed to start: {e}")
+        _slog("Popen failed:\n" + traceback.format_exc())
         return
     _msg(f"server starting — connect at {URL}")
 
@@ -192,6 +227,7 @@ def main():
         action = (op.get_lt_str("MCP_ACTION$") or "toggle").strip().lower()
     except Exception:
         action = "toggle"
+    _slog("action=" + action)
     if action == "start":
         start()
     elif action == "stop":
@@ -205,5 +241,8 @@ def main():
             start()
 
 
-if __name__ == "__main__":
+try:
     main()
+except Exception:
+    _slog("main() crashed:\n" + traceback.format_exc())
+    raise

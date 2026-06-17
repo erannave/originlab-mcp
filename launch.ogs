@@ -7,8 +7,10 @@
 // is passed in the session string MCP_ACTION$ (manage.py defaults to         //
 // "toggle" if unset).                                                        //
 //////////////////////////////////////////////////////////////////////////////
-[main]	//	App-gallery click → toggle the sidecar
-	MCP_ACTION$ = "toggle";
+[main]	//	App-gallery click → toggle the sidecar.
+	//	No variable is set here on purpose: manage.py defaults to "toggle", so
+	//	[main] cannot be aborted by a LabTalk assignment error. Toggle already
+	//	covers both start and stop, so this is the only section the app needs.
 	run -pyf "%@A%@X\manage.py";
 	return;
 
