@@ -1,0 +1,35 @@
+//////////////////////////////////////////////////////////////////////////////
+// Origin MCP — app lifecycle (LabTalk + embedded Python, no Origin C)        //
+//                                                                            //
+// Clicking the app in the Apps Gallery runs [main], which TOGGLES the MCP    //
+// sidecar (start if stopped, stop if running). All real work lives in        //
+// manage.py, run inside Origin's embedded Python via `run -pyf`. The action  //
+// is passed in the session string MCP_ACTION$ (manage.py defaults to         //
+// "toggle" if unset).                                                        //
+//////////////////////////////////////////////////////////////////////////////
+[main]	//	App-gallery click → toggle the sidecar
+	MCP_ACTION$ = "toggle";
+	run -pyf "%@A%@X\manage.py";
+	return;
+
+[start]	//	Explicit start (callable from the Script Window / startup hook)
+	MCP_ACTION$ = "start";
+	run -pyf "%@A%@X\manage.py";
+	return;
+
+[stop]	//	Explicit stop
+	MCP_ACTION$ = "stop";
+	run -pyf "%@A%@X\manage.py";
+	return;
+
+[status]	//	Report whether the sidecar is running
+	MCP_ACTION$ = "status";
+	run -pyf "%@A%@X\manage.py";
+	return;
+
+[autostart]	//	Optional: start silently at Origin launch. Wire this into
+	//	Origin's startup (see README) to auto-run the sidecar. Safe to call
+	//	repeatedly — manage.py no-ops if the server is already up.
+	MCP_ACTION$ = "start";
+	run -pyf "%@A%@X\manage.py";
+	return;

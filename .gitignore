@@ -1,0 +1,6 @@
+# Runtime artifacts written by the sidecar / manager
+host.handshake
+server.lock
+sidecar.log
+__pycache__/
+*.pyc

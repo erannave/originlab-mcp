@@ -1,0 +1,6 @@
+[main]
+	//	Stop the sidecar (if running) before the app files are removed, so we
+	//	don't leave an orphaned python.exe holding port 8000.
+	MCP_ACTION$ = "stop";
+	run -pyf "%@A%@X\manage.py";
+	return;
