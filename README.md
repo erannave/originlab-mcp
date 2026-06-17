@@ -57,7 +57,7 @@ hook — e.g. add to your user startup script (`%Y` Startup) or an `OnStartup`
 section:
 
 ```
-run.section("%@A%@XOriginMCP\launch.ogs", autostart);
+run.section("%@A%@X\launch.ogs", autostart);
 ```
 
 `[autostart]` is idempotent: `manage.py` no-ops if the server is already up.
