@@ -35,7 +35,7 @@ orphan process is left behind.
 | `launch.ogs` | `[main]` = toggle; `[start]`/`[stop]`/`[status]`/`[autostart]` |
 | `manage.py` | Embedded-Python lifecycle manager (start/stop/toggle/status) |
 | `mcp_bootstrap.py` | Sidecar entry: attach to the right Origin, watchdog, run server |
-| `server.py` | The MCP server (FastMCP tools); `python server.py stdio` still works standalone |
+| `origin_mcp_server.py` | The MCP server (FastMCP tools); `python origin_mcp_server.py stdio` still works standalone. Named to avoid colliding with `win32com.server`. |
 | `AfterInstall.ogs` | `pip -chk mcp fastmcp uvicorn starlette` into Origin's PyPackage |
 | `BeforeUninstall.ogs` | Stops the sidecar before removal |
 
@@ -75,7 +75,7 @@ connects to the URL:
 }
 ```
 
-(The legacy `python server.py stdio` spawn-mode still works for client-spawned
+(The legacy `python origin_mcp_server.py stdio` spawn-mode still works for client-spawned
 use, but then the client owns the process and Origin does not.)
 
 ## Notes / TODO

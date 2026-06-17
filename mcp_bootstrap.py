@@ -167,8 +167,10 @@ def main():
         _log(f"[bootstrap] op.attach() failed: {e}")
 
     # Import the server (and its transitive deps) BEFORE writing the lock, so a
-    # failed import never leaves a stale lock behind.
-    from server import mcp
+    # failed import never leaves a stale lock behind. The module is named
+    # origin_mcp_server (NOT "server") to avoid colliding with win32com.server,
+    # which is exposed as a top-level "server" once vendor/win32com is on path.
+    from origin_mcp_server import mcp
 
     _write_lock()
     threading.Thread(target=_watchdog, args=(host_pid,), daemon=True).start()
