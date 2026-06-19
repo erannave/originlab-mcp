@@ -8,9 +8,12 @@
 // "toggle" if unset).                                                        //
 //////////////////////////////////////////////////////////////////////////////
 [main]	//	App-gallery click → toggle the sidecar.
-	//	No variable is set here on purpose: manage.py defaults to "toggle", so
-	//	[main] cannot be aborted by a LabTalk assignment error. Toggle already
-	//	covers both start and stop, so this is the only section the app needs.
+	//	Explicitly set MCP_ACTION$ = "toggle". LabTalk session string vars persist
+	//	for the whole Origin session, so a value left behind by an earlier
+	//	[start]/[stop]/[status]/[setup] click would otherwise make this icon click
+	//	re-run that stale action instead of toggling. A literal-string assignment
+	//	cannot fail, so [main] stays un-abortable.
+	MCP_ACTION$ = "toggle";
 	run -pyf "%@A%@X\manage.py";
 	return;
 

@@ -1,8 +1,8 @@
 """Origin MCP sidecar lifecycle manager (runs in Origin's EMBEDDED Python).
 
 Invoked from launch.ogs via `run -pyf manage.py`. The requested action is read
-from the LabTalk session string MCP_ACTION$ (one of start/stop/toggle/status;
-defaults to "toggle").
+from the LabTalk session string MCP_ACTION$ (one of
+start/stop/toggle/status/setup; defaults to "toggle").
 
 Because this runs inside Origin's process, os.getpid() IS the host Origin PID.
 We:
@@ -50,7 +50,10 @@ LOG = os.path.join(HERE, "sidecar.log")
 STOP = os.path.join(HERE, "stop.request")
 BOOTSTRAP = os.path.join(HERE, "mcp_bootstrap.py")
 VENDOR = os.path.join(HERE, "vendor")
-PORT = 8000
+# Keep in sync with origin_mcp_server.py / mcp_bootstrap.py: the actual bound
+# port is ORIGIN_MCP_PORT (default 8000). Read it here so status/URL and the
+# lock file reflect the real port, and propagate it to the child env below.
+PORT = int(os.environ.get("ORIGIN_MCP_PORT", "8000"))
 URL = f"http://127.0.0.1:{PORT}/sse"
 
 # Packages the EXTERNAL sidecar needs that Origin's bundled PyPackage lacks.
@@ -113,6 +116,8 @@ def _child_env(exe_dir):
     # WSL-subnet-scoped firewall rule opens it to the local WSL VM. The server's
     # own default stays 127.0.0.1 — this env var is the app's explicit opt-in.
     env["ORIGIN_MCP_HOST"] = "0.0.0.0"
+    # Pin the port the sidecar binds so it matches PORT/URL/server.lock here.
+    env["ORIGIN_MCP_PORT"] = str(PORT)
     return env
 
 
@@ -237,6 +242,7 @@ def start():
     env = _child_env(exe_dir)
     _slog("child PYTHONHOME=" + env["PYTHONHOME"])
     _slog("child PYTHONPATH=" + env["PYTHONPATH"])
+    logf = None
     try:
         logf = open(LOG, "a", encoding="utf-8")
         proc = subprocess.Popen(
@@ -254,6 +260,15 @@ def start():
         _msg(f"failed to start: {e}")
         _slog("Popen failed:\n" + traceback.format_exc())
         return
+    finally:
+        # The child inherited its own duplicate of the log handle during spawn,
+        # so the parent's copy is no longer needed. Closing it avoids leaking a
+        # file handle on every start() inside Origin's long-lived embedded Python.
+        if logf is not None:
+            try:
+                logf.close()
+            except Exception:
+                pass
     _msg(f"server starting — connect at {URL}")
 
 

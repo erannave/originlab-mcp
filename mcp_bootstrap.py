@@ -29,7 +29,9 @@ HANDSHAKE_PATH = os.path.join(HERE, "host.handshake")
 LOCK_PATH = os.path.join(HERE, "server.lock")
 LOG_PATH = os.path.join(HERE, "sidecar.log")
 STOP_PATH = os.path.join(HERE, "stop.request")
-PORT = 8000
+# Must match the port origin_mcp_server.py actually binds (ORIGIN_MCP_PORT,
+# default 8000) so server.lock records the real port, not a hardcoded guess.
+PORT = int(os.environ.get("ORIGIN_MCP_PORT", "8000"))
 
 # Set in main() after import so the watchdog thread can release the COM
 # attachment on shutdown.
