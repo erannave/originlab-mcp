@@ -78,20 +78,27 @@ connects to the URL:
 (The legacy `python origin_mcp_server.py stdio` spawn-mode still works for client-spawned
 use, but then the client owns the process and Origin does not.)
 
-### WSL clients
+### WSL clients (WSL2 NAT mode)
 
-The server binds to **127.0.0.1** on purpose — it runs arbitrary LabTalk, so it
-must not be exposed to the LAN. A client inside **WSL2** cannot reach the Windows
-loopback under default NAT networking. Use **mirrored networking**, which shares
-the Windows loopback with WSL:
+A WSL2 client can't reach the Windows **loopback**, so for WSL the app's
+`manage.py` binds the sidecar to `0.0.0.0` (via `ORIGIN_MCP_HOST`). This is still
+**not LAN-exposed**: the standard Windows Firewall blocks inbound on the physical
+NICs by default — only the WSL virtual adapter needs to be allowed.
 
-1. In `C:\Users\<you>\.wslconfig`, under `[wsl2]`, add: `networkingMode=mirrored`
-2. From a **Windows** terminal (not inside WSL): `wsl --shutdown`, then reopen WSL.
-3. The client connects to `http://localhost:8000/sse` — no LAN exposure, no
-   firewall rule.
+1. Client connects to `http://host.docker.internal:8000/sse` (the Windows host as
+   seen from WSL2 NAT).
+2. Allow the WSL subnet to reach the port — in an **elevated PowerShell**:
+   ```powershell
+   New-NetFirewallRule -DisplayName "Origin MCP (WSL->host 8000)" -Direction Inbound `
+     -Action Allow -Protocol TCP -LocalPort 8000 -RemoteAddress 172.16.0.0/12
+   ```
+   (`172.16.0.0/12` is the WSL/Hyper-V private range — **not** your LAN/Wi-Fi.)
 
-(`ORIGIN_MCP_HOST` / `ORIGIN_MCP_PORT` can override the bind, but only do so with
-a firewall rule scoped to a trusted subnet — the server is effectively RCE.)
+> Mirrored networking was tried but breaks Docker Desktop's port publishing, so
+> NAT + this scoped rule is the supported path here.
+
+(The code default bind stays `127.0.0.1`; `ORIGIN_MCP_HOST`/`ORIGIN_MCP_PORT`
+override it. The server runs arbitrary LabTalk — keep the firewall scope tight.)
 
 ## Notes / TODO
 

@@ -105,6 +105,12 @@ def _child_env(exe_dir):
     env["PYTHONPATH"] = os.pathsep.join(
         [VENDOR, pyzip, os.path.join(pyzip, "site-packages"), pydlls, pypkg]
     )
+    # Bind on all interfaces so a WSL2 (NAT) client can reach the server via the
+    # Windows host IP (host.docker.internal). NOT LAN-exposed: the standard
+    # Windows Firewall blocks inbound on the physical NICs by default; only a
+    # WSL-subnet-scoped firewall rule opens it to the local WSL VM. The server's
+    # own default stays 127.0.0.1 — this env var is the app's explicit opt-in.
+    env["ORIGIN_MCP_HOST"] = "0.0.0.0"
     return env
 
 
