@@ -47,6 +47,7 @@ _slog(f"--- manage.py invoked (cwd={os.getcwd()}, exe={sys.executable}) ---")
 HANDSHAKE = os.path.join(HERE, "host.handshake")
 LOCK = os.path.join(HERE, "server.lock")
 LOG = os.path.join(HERE, "sidecar.log")
+STOP = os.path.join(HERE, "stop.request")
 BOOTSTRAP = os.path.join(HERE, "mcp_bootstrap.py")
 VENDOR = os.path.join(HERE, "vendor")
 PORT = 8000
@@ -69,6 +70,7 @@ try:
     import glob
     import random
     import subprocess
+    import time
 
     import originpro as op
     _slog("originpro imported OK")
@@ -259,8 +261,42 @@ def stop():
     pid = _read_lock_pid()
     if not pid or not _pid_alive(pid):
         _clear_lock()
+        try:
+            if os.path.exists(STOP):
+                os.remove(STOP)
+        except Exception:
+            pass
         _msg("server is not running")
         return
+
+    # Graceful stop FIRST: request the sidecar to release its COM attachment
+    # (op.detach) and exit. A hard kill would leave Origin "controlled by another
+    # application" because the COM reference is never released. Write the flag
+    # and wait for the sidecar to drop the lock (watchdog polls every ~2s).
+    try:
+        with open(STOP, "w", encoding="utf-8") as f:
+            f.write("stop\n")
+    except Exception as e:
+        _slog(f"could not write stop request: {e}")
+
+    deadline = 8.0
+    waited = 0.0
+    while waited < deadline:
+        time.sleep(0.5)
+        waited += 0.5
+        if not _pid_alive(pid):
+            _clear_lock()
+            try:
+                if os.path.exists(STOP):
+                    os.remove(STOP)
+            except Exception:
+                pass
+            _msg(f"server stopped, Origin released (PID {pid})")
+            return
+
+    # Fallback: graceful stop didn't complete in time — hard kill. (Origin may
+    # briefly stay "controlled" until COM/RPC notices the dead client.)
+    _slog("graceful stop timed out; terminating sidecar")
     PROCESS_TERMINATE = 0x0001
     k = ctypes.windll.kernel32
     h = k.OpenProcess(PROCESS_TERMINATE, False, pid)
@@ -268,7 +304,13 @@ def stop():
         k.TerminateProcess(h, 1)
         k.CloseHandle(h)
     _clear_lock()
-    _msg(f"server stopped (PID {pid})")
+    try:
+        if os.path.exists(STOP):
+            os.remove(STOP)
+    except Exception:
+        pass
+    _msg(f"server force-stopped (PID {pid}); if Origin still says 'controlled', "
+         f"wait a few seconds for COM to release")
 
 
 def status():

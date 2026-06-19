@@ -28,7 +28,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 HANDSHAKE_PATH = os.path.join(HERE, "host.handshake")
 LOCK_PATH = os.path.join(HERE, "server.lock")
 LOG_PATH = os.path.join(HERE, "sidecar.log")
+STOP_PATH = os.path.join(HERE, "stop.request")
 PORT = 8000
+
+# Set in main() after import so the watchdog thread can release the COM
+# attachment on shutdown.
+_OP = None
 
 # Defensive sys.path augmentation: PYTHONPATH from the spawn env is primary, but
 # if launched by hand for debugging, derive Origin's lib paths from the
@@ -145,20 +150,59 @@ def _verify_instance(op, token):
         _log("[bootstrap] verified bound to host Origin instance.")
 
 
+def _release_origin():
+    """Release the COM attachment so Origin is no longer 'controlled by another
+    application' and can be closed normally. op.detach() -> Exit(releaseonly)
+    drops the connection WITHOUT closing Origin."""
+    if _OP is None:
+        return
+    try:
+        _OP.detach()
+        _log("[bootstrap] released Origin (op.detach).")
+    except Exception as e:
+        _log(f"[bootstrap] op.detach() failed: {e}")
+
+
+def _shutdown(reason, release):
+    _log(f"[bootstrap] shutting down: {reason}")
+    if release:
+        _release_origin()
+    _remove_lock()
+    try:
+        if os.path.exists(STOP_PATH):
+            os.remove(STOP_PATH)
+    except Exception:
+        pass
+    # Hard-exit the process from this thread (the main thread is blocked in
+    # uvicorn). COM is already released above, so Origin is freed.
+    os._exit(0)
+
+
 def _watchdog(host_pid):
     while True:
-        time.sleep(5)
+        time.sleep(2)
+        # Explicit stop requested by manage.py: release Origin, then exit.
+        if os.path.exists(STOP_PATH):
+            _shutdown("stop requested", release=True)
+        # Host Origin gone: nothing to release (COM host is dead anyway).
         if not _pid_alive(host_pid):
-            _log("[bootstrap] host Origin gone — shutting down sidecar.")
-            _remove_lock()
-            os._exit(0)
+            _shutdown("host Origin gone", release=False)
 
 
 def main():
+    global _OP
     transport = sys.argv[1] if len(sys.argv) > 1 else "sse"
     host_pid, token = _read_handshake()
 
+    # Clear any stale stop request from a previous run.
+    try:
+        if os.path.exists(STOP_PATH):
+            os.remove(STOP_PATH)
+    except Exception:
+        pass
+
     import originpro as op
+    _OP = op
     try:
         op.attach()
         op.set_show(True)
@@ -179,6 +223,8 @@ def main():
              f"(transport={transport}, host PID={host_pid}).")
         mcp.run(transport=transport)
     finally:
+        # Normal exit path: release Origin and clean up the lock.
+        _release_origin()
         _remove_lock()
 
 
