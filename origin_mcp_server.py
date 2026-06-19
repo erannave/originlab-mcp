@@ -1,13 +1,17 @@
 from mcp.server.fastmcp import FastMCP
 import originpro as op
 import functools
+import os
 import sys
 
-# Origin-managed sidecar: bind SSE to loopback only. The MCP client is always
-# local (it connects to the Origin instance that spawned this process), so
-# binding to 127.0.0.1 avoids the Windows Firewall prompt and any network
-# exposure. The legacy client-spawned stdio path is unaffected by the host.
-mcp = FastMCP("Origin-MCP", host="127.0.0.1")
+# Bind address for the SSE transport. Default 127.0.0.1 (loopback only) — the
+# server executes arbitrary LabTalk, so it must NOT be exposed to the LAN. A WSL
+# client reaches it via WSL2 *mirrored* networking, which shares the Windows
+# loopback (client connects to localhost:8000). Only override ORIGIN_MCP_HOST if
+# you deliberately need another interface and have firewalled it accordingly.
+_HOST = os.environ.get("ORIGIN_MCP_HOST", "127.0.0.1")
+_PORT = int(os.environ.get("ORIGIN_MCP_PORT", "8000"))
+mcp = FastMCP("Origin-MCP", host=_HOST, port=_PORT)
 
 
 def _safe(fn):
@@ -250,5 +254,5 @@ if __name__ == "__main__":
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        print("Starting Origin MCP Server on SSE transport (127.0.0.1:8000)")
+        print(f"Starting Origin MCP Server on SSE transport ({_HOST}:{_PORT})")
         mcp.run(transport="sse")

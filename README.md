@@ -78,6 +78,21 @@ connects to the URL:
 (The legacy `python origin_mcp_server.py stdio` spawn-mode still works for client-spawned
 use, but then the client owns the process and Origin does not.)
 
+### WSL clients
+
+The server binds to **127.0.0.1** on purpose — it runs arbitrary LabTalk, so it
+must not be exposed to the LAN. A client inside **WSL2** cannot reach the Windows
+loopback under default NAT networking. Use **mirrored networking**, which shares
+the Windows loopback with WSL:
+
+1. In `C:\Users\<you>\.wslconfig`, under `[wsl2]`, add: `networkingMode=mirrored`
+2. From a **Windows** terminal (not inside WSL): `wsl --shutdown`, then reopen WSL.
+3. The client connects to `http://localhost:8000/sse` — no LAN exposure, no
+   firewall rule.
+
+(`ORIGIN_MCP_HOST` / `ORIGIN_MCP_PORT` can override the bind, but only do so with
+a firewall rule scoped to a trusted subnet — the server is effectively RCE.)
+
 ## Notes / TODO
 
 - **`AppIcon.png` is a placeholder** copied from Batalyse — replace with MCP
