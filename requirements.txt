@@ -1,5 +1,4 @@
 mcp
-fastmcp
 uvicorn
 starlette
 originpro

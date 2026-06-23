@@ -61,7 +61,7 @@ URL = f"http://127.0.0.1:{PORT}/sse"
 # (the embedded _PyOrigin.pyd only loads inside Origin); comtypes is its COM
 # backend. The rest are the MCP server stack. Installed into VENDOR/ via pip and
 # put first on the sidecar's PYTHONPATH.
-DEPS = ["OriginExt", "comtypes", "mcp", "fastmcp", "uvicorn", "starlette"]
+DEPS = ["OriginExt", "comtypes", "mcp", "uvicorn", "starlette"]
 # Folder names that must exist under VENDOR for deps to be considered present.
 DEP_MARKERS = ["OriginExt", "comtypes", "mcp"]
 
