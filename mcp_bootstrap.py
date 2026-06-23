@@ -23,6 +23,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HANDSHAKE_PATH = os.path.join(HERE, "host.handshake")
@@ -33,8 +34,9 @@ STOP_PATH = os.path.join(HERE, "stop.request")
 # default 8000) so server.lock records the real port, not a hardcoded guess.
 PORT = int(os.environ.get("ORIGIN_MCP_PORT", "8000"))
 
-# Set in main() after import so the watchdog thread can release the COM
-# attachment on shutdown.
+# Set in main() after import so the shutdown path can release the COM
+# attachment. _OP.detach() MUST be called from the same (main) thread that
+# called op.attach() — see _serve_sse below.
 _OP = None
 
 # Defensive sys.path augmentation: PYTHONPATH from the spawn env is primary, but
@@ -165,9 +167,74 @@ def _release_origin():
         _log(f"[bootstrap] op.detach() failed: {e}")
 
 
-def _shutdown(reason, release):
-    _log(f"[bootstrap] shutting down: {reason}")
-    if release:
+def _serve_sse(mcp, host_pid):
+    """Serve SSE and own the entire shutdown sequence on the MAIN thread. NEVER
+    returns — it os._exit()s.
+
+    Why not just flip uvicorn's should_exit and let serve() return so a finally
+    can detach? Because uvicorn's graceful shutdown HANGS tearing down long-lived
+    SSE streams (even with force_exit), and asyncio.run()'s own teardown then
+    blocks awaiting those cancelled tasks. serve() routinely failed to return
+    inside manage.py's 8s window, so we were hard-killed with COM still attached
+    → Origin stuck 'controlled by another application'.
+
+    Instead: run serve() as a task and poll the stop conditions INSIDE the loop.
+    Once asked to stop, stop running the loop (without awaiting the SSE teardown),
+    release COM HERE — this is the only thread whose STA apartment owns the
+    Origin reference, so op.detach() actually succeeds — and os._exit(). The OS
+    reclaims the still-open sockets; we never wait on them."""
+    import asyncio
+
+    import uvicorn
+
+    app = mcp.sse_app()
+    config = uvicorn.Config(
+        app,
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_level=mcp.settings.log_level.lower(),
+    )
+    server = uvicorn.Server(config)
+    # Detached, no-console process: don't let uvicorn grab SIGINT/SIGTERM.
+    server.install_signal_handlers = lambda: None
+
+    # Detach COM on the way out, UNLESS the host Origin is already dead (its COM
+    # host is gone — detaching would just fail). Mutable so _drive can set it.
+    release = [True]
+
+    async def _drive():
+        serve_task = asyncio.create_task(server.serve())
+        while True:
+            await asyncio.sleep(0.5)
+            if serve_task.done():
+                # Server stopped on its own (e.g. failed to bind the port).
+                # Re-await to surface the exception into the log, then exit.
+                try:
+                    await serve_task
+                except Exception:
+                    _log("[bootstrap] uvicorn serve() exited:\n"
+                         + traceback.format_exc())
+                return
+            if os.path.exists(STOP_PATH):
+                _log("[bootstrap] shutting down: stop requested")
+                release[0] = True
+                return
+            if not _pid_alive(host_pid):
+                _log("[bootstrap] shutting down: host Origin gone")
+                release[0] = False
+                return
+
+    # Own loop (not asyncio.run) so we control teardown: when _drive returns we
+    # simply stop driving the loop and hard-exit, rather than awaiting the
+    # cancellation of the SSE stream tasks (which is exactly what used to hang).
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_drive())
+    except Exception:
+        _log("[bootstrap] serve loop crashed:\n" + traceback.format_exc())
+
+    if release[0]:
         _release_origin()
     _remove_lock()
     try:
@@ -175,20 +242,18 @@ def _shutdown(reason, release):
             os.remove(STOP_PATH)
     except Exception:
         pass
-    # Hard-exit the process from this thread (the main thread is blocked in
-    # uvicorn). COM is already released above, so Origin is freed.
     os._exit(0)
 
 
-def _watchdog(host_pid):
+def _legacy_watchdog(host_pid):
+    """Watchdog for the legacy stdio transport (client-spawned, not Origin-
+    managed). Best-effort hard exit; the stdio path has no STA-safe place to
+    op.detach() from a background thread, so it just exits."""
     while True:
         time.sleep(2)
-        # Explicit stop requested by manage.py: release Origin, then exit.
-        if os.path.exists(STOP_PATH):
-            _shutdown("stop requested", release=True)
-        # Host Origin gone: nothing to release (COM host is dead anyway).
-        if not _pid_alive(host_pid):
-            _shutdown("host Origin gone", release=False)
+        if os.path.exists(STOP_PATH) or not _pid_alive(host_pid):
+            _remove_lock()
+            os._exit(0)
 
 
 def main():
@@ -219,13 +284,17 @@ def main():
     from origin_mcp_server import mcp
 
     _write_lock()
-    threading.Thread(target=_watchdog, args=(host_pid,), daemon=True).start()
+    _log(f"[bootstrap] starting Origin MCP sidecar "
+         f"(transport={transport}, host PID={host_pid}).")
+    if transport == "sse":
+        # Owns shutdown + COM release + process exit on the main thread.
+        _serve_sse(mcp, host_pid)
+        return  # not reached: _serve_sse os._exit()s
+    # Legacy stdio path (client-spawned, not Origin-managed).
+    threading.Thread(target=_legacy_watchdog, args=(host_pid,), daemon=True).start()
     try:
-        _log(f"[bootstrap] starting Origin MCP sidecar "
-             f"(transport={transport}, host PID={host_pid}).")
         mcp.run(transport=transport)
     finally:
-        # Normal exit path: release Origin and clean up the lock.
         _release_origin()
         _remove_lock()
 

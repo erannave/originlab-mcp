@@ -284,48 +284,49 @@ def stop():
         _msg("server is not running")
         return
 
-    # Graceful stop FIRST: request the sidecar to release its COM attachment
-    # (op.detach) and exit. A hard kill would leave Origin "controlled by another
-    # application" because the COM reference is never released. Write the flag
-    # and wait for the sidecar to drop the lock (watchdog polls every ~2s).
+    # If we ALREADY asked it to stop a while ago and it's still alive, the sidecar
+    # is genuinely stuck — hard-kill as a last resort. (This may briefly leave
+    # Origin "controlled" until COM/RPC notices the dead client.) The sidecar
+    # removes STOP on a clean exit, so a lingering, old STOP means it never left.
+    if os.path.exists(STOP):
+        try:
+            age = time.time() - os.path.getmtime(STOP)
+        except OSError:
+            age = 0.0
+        if age > 6.0:
+            _slog(f"sidecar still alive {age:.0f}s after stop request; terminating")
+            PROCESS_TERMINATE = 0x0001
+            k = ctypes.windll.kernel32
+            h = k.OpenProcess(PROCESS_TERMINATE, False, pid)
+            if h:
+                k.TerminateProcess(h, 1)
+                k.CloseHandle(h)
+            _clear_lock()
+            try:
+                os.remove(STOP)
+            except Exception:
+                pass
+            _msg(f"server force-stopped (PID {pid}); if Origin still says "
+                 f"'controlled', wait a few seconds for COM to release")
+            return
+
+    # Graceful stop: ask the sidecar to release its COM attachment (op.detach) and
+    # exit, then RETURN IMMEDIATELY. We must NOT sleep-wait here: stop() runs on
+    # Origin's STA thread (via `run -pyf`), which is the SAME thread that has to
+    # SERVICE the sidecar's op.detach() COM call. Blocking here parks that thread,
+    # the detach can't be serviced, and it deadlocks until a hard kill — leaving
+    # Origin "controlled". By returning at once we free Origin's thread; the
+    # sidecar detaches (Origin services it) and exits on its own within ~1s,
+    # dropping the lock. A genuinely stuck sidecar is caught by the age check above
+    # on the next stop click.
     try:
         with open(STOP, "w", encoding="utf-8") as f:
             f.write("stop\n")
     except Exception as e:
         _slog(f"could not write stop request: {e}")
-
-    deadline = 8.0
-    waited = 0.0
-    while waited < deadline:
-        time.sleep(0.5)
-        waited += 0.5
-        if not _pid_alive(pid):
-            _clear_lock()
-            try:
-                if os.path.exists(STOP):
-                    os.remove(STOP)
-            except Exception:
-                pass
-            _msg(f"server stopped, Origin released (PID {pid})")
-            return
-
-    # Fallback: graceful stop didn't complete in time — hard kill. (Origin may
-    # briefly stay "controlled" until COM/RPC notices the dead client.)
-    _slog("graceful stop timed out; terminating sidecar")
-    PROCESS_TERMINATE = 0x0001
-    k = ctypes.windll.kernel32
-    h = k.OpenProcess(PROCESS_TERMINATE, False, pid)
-    if h:
-        k.TerminateProcess(h, 1)
-        k.CloseHandle(h)
-    _clear_lock()
-    try:
-        if os.path.exists(STOP):
-            os.remove(STOP)
-    except Exception:
-        pass
-    _msg(f"server force-stopped (PID {pid}); if Origin still says 'controlled', "
-         f"wait a few seconds for COM to release")
+        _msg("could not write stop request; see startup.log")
+        return
+    _msg(f"stopping (PID {pid}) — Origin will be released in a moment")
 
 
 def status():
