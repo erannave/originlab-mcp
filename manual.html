@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Origin MCP — Manual</title>
+<style>
+  :root {
+    --red: #e2281c;
+    --red-deep: #960c08;
+    --blue: #1446c8;
+    --blue-deep: #12346e;
+    --bg-1: #f4f8fc;
+    --bg-2: #d6e4f2;
+    --ink: #1c2430;
+    --ink-soft: #56606e;
+    --rule: #dfe6ef;
+    --code-bg: #f4f8fc;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    line-height: 1.6;
+    background: #fff;
+    font-size: 16px;
+  }
+
+  /* Header */
+  header {
+    background: linear-gradient(180deg, var(--bg-1), var(--bg-2));
+    border-bottom: 1px solid var(--rule);
+  }
+  .header-inner {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 28px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .header-inner svg { width: 40px; height: 40px; flex: none; border-radius: 9px; }
+  .header-text h1 {
+    margin: 0;
+    font-size: 26px;
+    letter-spacing: -0.01em;
+    color: var(--blue-deep);
+  }
+  .header-text p {
+    margin: 2px 0 0;
+    color: var(--ink-soft);
+    font-size: 15px;
+  }
+
+  /* Layout */
+  .layout {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 40px;
+    align-items: start;
+  }
+
+  /* TOC */
+  nav.toc {
+    position: sticky;
+    top: 24px;
+    font-size: 14px;
+  }
+  nav.toc .toc-title {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+  }
+  nav.toc ul { list-style: none; margin: 0; padding: 0; }
+  nav.toc li { margin: 0; }
+  nav.toc a {
+    display: block;
+    padding: 5px 10px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    border-radius: 0 4px 4px 0;
+    transition: color .12s, border-color .12s, background .12s;
+  }
+  nav.toc a:hover { color: var(--blue); }
+  nav.toc a.active {
+    color: var(--blue-deep);
+    font-weight: 600;
+    border-left-color: var(--red);
+    background: var(--bg-1);
+  }
+
+  /* Content */
+  main { max-width: 760px; min-width: 0; }
+  main section { scroll-margin-top: 20px; }
+
+  h2 {
+    font-size: 22px;
+    color: var(--blue-deep);
+    margin: 44px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+    letter-spacing: -0.01em;
+  }
+  main section:first-of-type h2 { margin-top: 0; }
+  h3 {
+    font-size: 17px;
+    color: var(--blue);
+    margin: 30px 0 10px;
+  }
+  p { margin: 12px 0; }
+
+  a { color: var(--red); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  ul.body, ol.body { margin: 12px 0; padding-left: 22px; }
+  ul.body li, ol.body li { margin: 7px 0; }
+
+  blockquote {
+    margin: 16px 0;
+    padding: 10px 16px;
+    border-left: 3px solid var(--blue);
+    background: var(--bg-1);
+    color: var(--ink-soft);
+    border-radius: 0 6px 6px 0;
+  }
+  blockquote.warn { border-left-color: var(--red); }
+  blockquote p { margin: 4px 0; }
+
+  code {
+    font-family: "SF Mono", SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.88em;
+  }
+  p code, li code, td code {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--red-deep);
+    white-space: nowrap;
+  }
+
+  /* Code blocks */
+  .codeblock { position: relative; margin: 16px 0; }
+  .codeblock pre {
+    margin: 0;
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    white-space: pre;
+    line-height: 1.5;
+  }
+  .codeblock pre code {
+    color: var(--ink);
+    font-size: 13.5px;
+    white-space: pre;
+  }
+  .copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--blue-deep);
+    background: #fff;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity .12s, background .12s, color .12s;
+  }
+  .codeblock:hover .copy-btn,
+  .copy-btn:focus { opacity: 1; }
+  .copy-btn:hover { background: var(--bg-1); }
+  .copy-btn.copied { color: #fff; background: var(--blue); border-color: var(--blue); }
+
+  /* Table */
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0;
+    font-size: 14.5px;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    color: var(--blue-deep);
+    border-bottom: 2px solid var(--rule);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Diagram */
+  .diagram {
+    background: linear-gradient(180deg, var(--bg-1), var(--bg-2));
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+  .diagram pre {
+    margin: 0;
+    font-family: "SF Mono", SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--blue-deep);
+    white-space: pre;
+  }
+
+  footer {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 24px;
+    border-top: 1px solid var(--rule);
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: 1fr; gap: 8px; }
+    nav.toc { position: static; margin-bottom: 8px; }
+    nav.toc ul { display: flex; flex-wrap: wrap; gap: 4px; }
+    nav.toc a { border-left: none; border-radius: 6px; padding: 5px 10px; }
+    nav.toc a.active { border-left: none; }
+    .copy-btn { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Origin MCP icon">
+      <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#f4f8fc"/><stop offset="1" stop-color="#d6e4f2"/>
+        </linearGradient>
+        <radialGradient id="ball" cx="0.36" cy="0.32" r="0.78">
+          <stop offset="0" stop-color="#ff8a70"/><stop offset="0.45" stop-color="#e2281c"/>
+          <stop offset="1" stop-color="#960c08"/>
+        </radialGradient>
+        <clipPath id="rc"><rect width="128" height="128" rx="30" ry="30"/></clipPath>
+        <clipPath id="ball-clip"><circle cx="64.0" cy="51.84" r="38.4"/></clipPath>
+        <filter id="sh" x="-40%" y="-40%" width="180%" height="180%">
+          <feDropShadow dx="0" dy="3" stdDeviation="3.5" flood-color="#142850" flood-opacity="0.45"/>
+        </filter>
+      </defs>
+      <g clip-path="url(#rc)">
+        <rect width="128" height="128" fill="url(#bg)"/>
+        <circle cx="64.0" cy="51.84" r="38.4" fill="url(#ball)" filter="url(#sh)"/>
+        <g clip-path="url(#ball-clip)">
+          <g stroke="#fff" stroke-opacity="0.24" stroke-width="0.8"><line x1="40.96" y1="13.44" x2="40.96" y2="90.24"/><line x1="25.60" y1="28.80" x2="102.40" y2="28.80"/><line x1="56.32" y1="13.44" x2="56.32" y2="90.24"/><line x1="25.60" y1="44.16" x2="102.40" y2="44.16"/><line x1="71.68" y1="13.44" x2="71.68" y2="90.24"/><line x1="25.60" y1="59.52" x2="102.40" y2="59.52"/><line x1="87.04" y1="13.44" x2="87.04" y2="90.24"/><line x1="25.60" y1="74.88" x2="102.40" y2="74.88"/></g>
+          <polyline points="46.34,66.43 55.52,48.77 64.00,59.52 72.83,39.55 81.66,48.00" fill="none" stroke="#fff" stroke-opacity="0.7" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+          <polyline points="46.34,66.43 55.52,48.77 64.00,59.52 72.83,39.55 81.66,48.00" fill="none" stroke="#1446c8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+          <rect x="41.50" y="61.59" width="9.68" height="9.68" fill="#fff"/><rect x="42.50" y="62.59" width="7.68" height="7.68" fill="#1446c8"/><rect x="50.68" y="43.93" width="9.68" height="9.68" fill="#fff"/><rect x="51.68" y="44.93" width="7.68" height="7.68" fill="#1446c8"/><rect x="59.16" y="54.68" width="9.68" height="9.68" fill="#fff"/><rect x="60.16" y="55.68" width="7.68" height="7.68" fill="#1446c8"/><rect x="67.99" y="34.71" width="9.68" height="9.68" fill="#fff"/><rect x="68.99" y="35.71" width="7.68" height="7.68" fill="#1446c8"/><rect x="76.82" y="43.16" width="9.68" height="9.68" fill="#fff"/><rect x="77.82" y="44.16" width="7.68" height="7.68" fill="#1446c8"/>
+        </g>
+        <circle cx="64.0" cy="51.84" r="38.4" fill="none" stroke="#780806" stroke-opacity="0.6" stroke-width="0.8"/>
+        <text x="64" y="113" text-anchor="middle" font-family="'Arial Black','Arial',sans-serif" font-weight="900" font-size="30" fill="#12346e">MCP</text>
+      </g>
+    </svg>
+    <div class="header-text">
+      <h1>Origin MCP</h1>
+      <p>Let AI clients drive your running OriginLab Origin instance.</p>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="toc">
+    <div class="toc-title">Contents</div>
+    <ul>
+      <li><a href="#intro">Overview</a></li>
+      <li><a href="#capabilities">What the AI can do</a></li>
+      <li><a href="#quick-start">Quick start</a></li>
+      <li><a href="#connect">Connect your AI client</a></li>
+      <li><a href="#autostart">Auto-start at launch</a></li>
+      <li><a href="#wsl">Connecting from WSL</a></li>
+      <li><a href="#how-it-works">How it works</a></li>
+      <li><a href="#files">Files</a></li>
+      <li><a href="#notes">Notes</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section id="intro">
+      <h2>Overview</h2>
+      <p>
+        An OriginLab Origin app that lets <strong>AI clients drive your running
+        Origin instance</strong>.
+      </p>
+      <p>
+        Install the app, click it once, and Origin starts a small background server
+        (an <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP</a>
+        server). Point any MCP-capable AI client at it and the AI can now work inside
+        <em>this</em> Origin: run LabTalk, read and write worksheets, run fits, create
+        projects, and read results back.
+      </p>
+      <blockquote>
+        <p>This is a standalone app — it is <strong>not</strong> part of Batalyse.</p>
+      </blockquote>
+    </section>
+
+    <section id="capabilities">
+      <h2>What the AI can do</h2>
+      <p>Once connected, the client has tools to:</p>
+      <ul class="body">
+        <li><strong>Run LabTalk</strong> — any script, with or without reading values back (<code>run_labtalk</code>, <code>run_labtalk_with_readback</code>)</li>
+        <li><strong>Read/write worksheet data</strong> (<code>get_worksheet_data</code>, <code>set_worksheet_data</code>, <code>add_worksheet</code>)</li>
+        <li><strong>Read/write LabTalk variables and the project tree</strong> (<code>get_labtalk_value</code>, <code>set_labtalk_var</code>, <code>get_labtalk_tree</code>)</li>
+        <li><strong>Manage projects</strong> (<code>create_project</code>, <code>save_project</code>)</li>
+      </ul>
+    </section>
+
+    <section id="quick-start">
+      <h2>Quick start</h2>
+      <ol class="body">
+        <li><strong>Install</strong> the <code>OriginMCP.opx</code> (double-click it, or drag it onto Origin). On install, Origin downloads the server's Python dependencies in the background — the first install takes a minute.</li>
+        <li><strong>Click the "Origin MCP" app</strong> in the Apps Gallery to start the server. A message box confirms it's running. Click again to stop. The server listens on <code>http://127.0.0.1:8000/sse</code>.</li>
+        <li><strong>Point your MCP client at the URL</strong> (see below) and have it call <code>connect_origin</code>.</li>
+      </ol>
+      <p>
+        That's it — the server runs in the background while Origin is open and shuts
+        itself down when Origin closes.
+      </p>
+    </section>
+
+    <section id="connect">
+      <h2>Connect your AI client</h2>
+      <p>The app starts the server for you, so the client just connects to the URL:</p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button">Copy</button>
+<pre><code>{
+  "mcpServers": {
+    "origin-mcp": { "url": "http://localhost:8000/sse" }
+  }
+}</code></pre>
+      </div>
+    </section>
+
+    <section id="autostart">
+      <h2>Auto-start at Origin launch <span style="font-weight:400;color:var(--ink-soft);font-size:16px;">(optional)</span></h2>
+      <p>
+        Clicking the app starts the server. To start it automatically every time
+        Origin launches, add this to your Origin startup script:
+      </p>
+      <div class="codeblock">
+        <button class="copy-btn" type="button">Copy</button>
+<pre><code>run.section("%@A%@X\launch.ogs", autostart);</code></pre>
+      </div>
+      <p>
+        It's safe to call repeatedly — it does nothing if the server is already running.
+      </p>
+    </section>
+
+    <section id="wsl">
+      <h2>Connecting from WSL</h2>
+      <p>
+        A WSL2 client can't reach Windows <code>localhost</code>, so the app binds the
+        server in a way WSL can reach (it is <strong>not</strong> exposed to your LAN —
+        Windows Firewall still blocks inbound on your physical network adapters).
+      </p>
+      <ol class="body">
+        <li>Connect to <code>http://host.docker.internal:8000/sse</code>.</li>
+        <li>
+          Allow the WSL subnet to reach the port. In an <strong>elevated PowerShell</strong>:
+          <div class="codeblock">
+            <button class="copy-btn" type="button">Copy</button>
+<pre><code>New-NetFirewallRule -DisplayName "Origin MCP (WSL-&gt;host 8000)" -Direction Inbound `
+  -Action Allow -Protocol TCP -LocalPort 8000 -RemoteAddress 172.16.0.0/12</code></pre>
+          </div>
+          (<code>172.16.0.0/12</code> is the private WSL/Hyper-V range — <strong>not</strong> your Wi-Fi/LAN.)
+        </li>
+      </ol>
+      <blockquote class="warn">
+        <p>⚠️ The server runs arbitrary LabTalk, so keep the firewall scope tight.</p>
+      </blockquote>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works</h2>
+      <p>
+        Clicking the app runs a small lifecycle manager inside Origin's embedded
+        Python, which launches a separate, hidden <strong>sidecar</strong> process for
+        the actual server. The sidecar attaches back to <em>this</em> Origin over COM
+        and serves the MCP tools:
+      </p>
+      <div class="diagram">
+<pre>Origin (this instance)
+  │  click "Origin MCP"  →  launch.ogs  →  manage.py   (start / stop / toggle)
+  ▼
+manage.py  ── launches (hidden) ──►  sidecar: mcp_bootstrap.py → origin_mcp_server.py
+  │  records host PID + a token             │  attaches back to THIS Origin (COM)
+  ▼                                         ▼
+                              AI client ──► http://127.0.0.1:8000/sse</pre>
+      </div>
+      <p>
+        The sidecar runs off Origin's UI thread, so the server never freezes Origin,
+        and it exits on its own when Origin closes — no orphaned processes left behind.
+      </p>
+      <p>
+        Implementation details (the three-process design, COM lifecycle, and packaging)
+        live in <code>CLAUDE.md</code>.
+      </p>
+    </section>
+
+    <section id="files">
+      <h2>Files</h2>
+      <table>
+        <thead>
+          <tr><th>File</th><th>Role</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>launch.ogs</code></td><td>App entry: click = toggle; <code>[start]</code>/<code>[stop]</code>/<code>[status]</code>/<code>[setup]</code>/<code>[autostart]</code></td></tr>
+          <tr><td><code>manage.py</code></td><td>Lifecycle manager (runs in Origin's embedded Python)</td></tr>
+          <tr><td><code>mcp_bootstrap.py</code></td><td>Sidecar entry: attaches to the right Origin, then runs the server</td></tr>
+          <tr><td><code>origin_mcp_server.py</code></td><td>The MCP server and its tools</td></tr>
+          <tr><td><code>AfterInstall.ogs</code></td><td>Installs the server's Python dependencies on install</td></tr>
+          <tr><td><code>BeforeUninstall.ogs</code></td><td>Stops the sidecar before the app is removed</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="notes">
+      <h2>Notes</h2>
+      <ul class="body">
+        <li><strong><code>AppIcon.png</code> is a placeholder</strong> — replace with Origin MCP branding before public distribution.</li>
+        <li><strong>Single instance:</strong> the OS port <code>:8000</code> acts as the lock. A second Origin instance that tries to start a server will fail to bind and exit quietly; the first instance keeps serving.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer>
+  Origin MCP — offline manual. Built by Batalyse GmbH.
+</footer>
+
+<script>
+  // Copy buttons
+  document.querySelectorAll('.codeblock').forEach(function (block) {
+    var btn = block.querySelector('.copy-btn');
+    var code = block.querySelector('pre code') || block.querySelector('pre');
+    if (!btn || !code) return;
+    btn.addEventListener('click', function () {
+      var text = code.textContent;
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(function () {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 1400);
+      }).catch(function () {
+        btn.textContent = 'Failed';
+        setTimeout(function () { btn.textContent = 'Copy'; }, 1400);
+      });
+    });
+  });
+
+  // Active-section highlighting in the TOC
+  (function () {
+    var links = {};
+    document.querySelectorAll('nav.toc a').forEach(function (a) {
+      links[a.getAttribute('href').slice(1)] = a;
+    });
+    var sections = document.querySelectorAll('main section[id]');
+    var current = null;
+    function setActive(id) {
+      if (id === current) return;
+      current = id;
+      Object.keys(links).forEach(function (k) {
+        links[k].classList.toggle('active', k === id);
+      });
+    }
+    var observer = new IntersectionObserver(function (entries) {
+      // Pick the entry nearest the top that is intersecting.
+      var visible = entries.filter(function (e) { return e.isIntersecting; });
+      if (visible.length) {
+        visible.sort(function (a, b) {
+          return a.boundingClientRect.top - b.boundingClientRect.top;
+        });
+        setActive(visible[0].target.id);
+      }
+    }, { rootMargin: '0px 0px -65% 0px', threshold: 0 });
+    sections.forEach(function (s) { observer.observe(s); });
+  })();
+</script>
+</body>
+</html>
