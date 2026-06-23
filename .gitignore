@@ -7,3 +7,5 @@ __pycache__/
 vendor/
 startup.log
 stop.request
+# Generated OPX output
+*.opx
