@@ -134,6 +134,12 @@ uninstall. Verify both are present every time you re-package.
 - **pip `--target vendor` does NOT run pywin32's post-install**, so `import pywintypes` (pulled in
   by `mcp`) fails. `mcp_bootstrap.py` manually adds `vendor/win32`, `win32/lib`, `win32com`,
   `win32comext`, `Pythonwin` to `sys.path` and `os.add_dll_directory(vendor/pywin32_system32)`.
+- **pip `--target vendor` needs `--ignore-installed`.** `setup()` runs pip with PYTHONPATH exposing
+  the host Origin's `ProgramData\OriginLab\<ver>\PyPackage\Py3`; without the flag, pip treats
+  packages found there (e.g. `idna`, `attrs` installed by other Apps) as "already satisfied" and
+  skips vendoring them. The sidecar then works under that Origin version but crashes with
+  `ModuleNotFoundError` under a freshly installed one (this broke Origin 2026b while 2026 worked —
+  its new `103b\PyPackage\Py3` was empty). `DEP_MARKERS` now checks the known leak-prone names.
 - **Never name the server module `server.py`** — `vendor/win32com` exposes a top-level `server`
   package that shadows it. Hence `origin_mcp_server.py`.
 - **`vendor/` is untracked/gitignored** (platform/version-specific, ~7800 files; auto-installed).

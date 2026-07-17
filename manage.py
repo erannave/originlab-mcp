@@ -63,7 +63,10 @@ URL = f"http://127.0.0.1:{PORT}/sse"
 # put first on the sidecar's PYTHONPATH.
 DEPS = ["OriginExt", "comtypes", "mcp", "uvicorn", "starlette"]
 # Folder names that must exist under VENDOR for deps to be considered present.
-DEP_MARKERS = ["OriginExt", "comtypes", "mcp"]
+# idna/sniffio/attrs are transitive deps that other Origin versions may already
+# provide via ProgramData\OriginLab\<ver>\PyPackage\Py3 — if they are missing
+# from VENDOR the sidecar only breaks on a *fresh* Origin version, so check them.
+DEP_MARKERS = ["OriginExt", "comtypes", "mcp", "idna", "sniffio", "attrs"]
 
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -135,7 +138,12 @@ def setup():
         return False
     os.makedirs(VENDOR, exist_ok=True)
     env = _child_env(exe_dir)
-    cmd = [pyexe, "-m", "pip", "install", "--upgrade", "--target", VENDOR] + DEPS
+    # --ignore-installed is required: the child env's PYTHONPATH exposes the
+    # host Origin's ProgramData\...\PyPackage\Py3 packages, and without it pip
+    # treats those as "already satisfied" and silently skips vendoring them —
+    # the sidecar then breaks under any Origin version that lacks them.
+    cmd = [pyexe, "-m", "pip", "install", "--upgrade", "--ignore-installed",
+           "--target", VENDOR] + DEPS
     _slog("pip cmd: " + " ".join(cmd))
     try:
         proc = subprocess.run(
