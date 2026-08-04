@@ -4,14 +4,38 @@ import functools
 import os
 import sys
 
-# Bind address for the SSE transport. Default 127.0.0.1 (loopback only) — the
+# Bind address for the HTTP transport. Default 127.0.0.1 (loopback only) — the
 # server executes arbitrary LabTalk, so it must NOT be exposed to the LAN. A WSL
 # client reaches it via WSL2 *mirrored* networking, which shares the Windows
 # loopback (client connects to localhost:8000). Only override ORIGIN_MCP_HOST if
 # you deliberately need another interface and have firewalled it accordingly.
 _HOST = os.environ.get("ORIGIN_MCP_HOST", "127.0.0.1")
 _PORT = int(os.environ.get("ORIGIN_MCP_PORT", "8000"))
-mcp = FastMCP("Origin-MCP", host=_HOST, port=_PORT)
+
+# stateless_http=True is what lets a client survive an Origin restart WITHOUT a
+# manual /mcp reconnect, and it is the whole reason we serve streamable-HTTP
+# instead of the legacy SSE transport.
+#
+# Under SSE (or session-mode streamable-HTTP) every connection owns a
+# ServerSession that starts NotInitialized and only becomes usable after the
+# client's `initialize` handshake (mcp/server/session.py:204 raises "Received
+# request before initialization was complete" otherwise). When Origin restarts,
+# the sidecar dies with it; Claude Code transparently re-opens the transport but
+# does NOT replay `initialize`, so every later tool call hits a fresh,
+# uninitialized session and fails with MCP error -32602 until the user manually
+# reconnects. Verified against Claude Code 2.1.221.
+#
+# In stateless mode the SDK builds a brand-new transport + session per request
+# and stamps it Initialized at construction (mcp/server/session.py:98), so there
+# is no session to lose and nothing to re-handshake. json_response=True returns
+# a plain JSON body per POST rather than a single-event SSE stream.
+mcp = FastMCP(
+    "Origin-MCP",
+    host=_HOST,
+    port=_PORT,
+    stateless_http=True,
+    json_response=True,
+)
 
 
 def _safe(fn):
@@ -250,9 +274,10 @@ if __name__ == "__main__":
     # "python server.py stdio"). The Origin-managed sidecar does NOT use this
     # path — it goes through mcp_bootstrap.py, which binds to the correct Origin
     # instance and installs a watchdog before calling mcp.run().
-    transport = sys.argv[1] if len(sys.argv) > 1 else "sse"
+    transport = sys.argv[1] if len(sys.argv) > 1 else "http"
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        print(f"Starting Origin MCP Server on SSE transport ({_HOST}:{_PORT})")
-        mcp.run(transport="sse")
+        print(f"Starting Origin MCP Server on streamable-HTTP "
+              f"({_HOST}:{_PORT}/mcp)")
+        mcp.run(transport="streamable-http")

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A standalone **OriginLab Origin app** that runs an **MCP (Model Context Protocol) server**
-as a background **sidecar** while Origin is running. AI clients connect over HTTP/SSE and
+as a background **sidecar** while Origin is running. AI clients connect over streamable-HTTP and
 drive *this* Origin instance (LabTalk, worksheets, fits, readback) through `originpro` (COM).
 It is **not** part of the Batalyse app — separate repo, separate OPX.
 
@@ -20,7 +20,7 @@ Origin (Windows, embedded CPython)          External sidecar (Origin's bundled p
   (toggle the app)                  (embedded)             (detached, hidden)   (FastMCP tools)
                                        |                        |
                                   writes host.handshake     op.attach() (COM) binds back to THIS Origin
-                                  + MCP_HOST_TOKEN$         verifies token, serves SSE, self-stops
+                                  + MCP_HOST_TOKEN$         verifies token, serves HTTP, self-stops
 ```
 
 - **`manage.py`** runs inside Origin's **embedded** Python (`run -pyf`). So `os.getpid()` IS the
@@ -30,7 +30,7 @@ Origin (Windows, embedded CPython)          External sidecar (Origin's bundled p
   read from `MCP_ACTION$` (start/stop/toggle/status/setup), default **toggle**.
 - **`mcp_bootstrap.py`** is the **external** sidecar entry. It fixes up `sys.path`/DLL dirs for the
   vendored deps, `op.attach()`es over COM, verifies via the token that it bound to the *host*
-  Origin (best-effort — `originpro` can't re-pick a ROT entry), then serves SSE via `_serve_sse()`.
+  Origin (best-effort — `originpro` can't re-pick a ROT entry), then serves streamable-HTTP via `_serve_http()`.
   That runs uvicorn's `serve()` as a task and polls the stop conditions IN the event loop: it exits
   when the host Origin PID dies OR a `stop.request` flag appears, releasing COM on the main thread
   on the way out (see COM lifecycle).
@@ -58,10 +58,10 @@ the detach deadlocks, Origin gets force-killed, and stays "controlled":
    `stop.request` mtime age check (>6s). (The old design sleep-waited 8s then `TerminateProcess`d —
    that was the deadlock.)
 2. **The sidecar releases COM on its own main thread, then hard-exits.** `_serve_sse()` detects the
-   stop in-loop, stops driving the event loop (it does NOT await uvicorn's SSE-stream teardown,
+   stop in-loop, stops driving the event loop (it does NOT await uvicorn's stream teardown,
    which hangs), calls `op.detach()` on the main thread (the STA apartment that owns the reference),
    then `os._exit()`. `asyncio.run()` is avoided on purpose — its teardown blocks on the cancelled
-   SSE tasks.
+   in-flight tasks.
 
 ## Commands
 
@@ -83,7 +83,9 @@ the `[setup]` section. Runtime artifacts (`server.lock`, `host.handshake`, `*.lo
 
 Reachability check from WSL:
 ```bash
-curl -s -N -H "Accept: text/event-stream" http://host.docker.internal:8000/sse | head -3   # expect: event: endpoint
+curl -s -X POST http://host.docker.internal:8000/mcp \
+  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'   # expect: a JSON result listing the tools
 ```
 
 ## Building the OPX
@@ -153,8 +155,22 @@ uninstall. Verify both are present every time you re-package.
 - **WSL2 clients**: mirrored networking breaks Docker Desktop port publishing here — use **NAT**
   (the default). The sidecar binds `0.0.0.0` (set via `ORIGIN_MCP_HOST` in `manage.py`'s child env;
   not LAN-exposed — the standard Windows Firewall blocks physical-NIC inbound by default). The WSL
-  client uses `http://host.docker.internal:8000/sse`, allowed by a firewall rule scoped to the WSL
+  client uses `http://host.docker.internal:8000/mcp`, allowed by a firewall rule scoped to the WSL
   range `172.16.0.0/12`.
 - **`Python.<func>()` / embedded-python dispatch caches modules** — restart Origin after editing
   `manage.py`/`mcp_bootstrap.py` so changes load. The sidecar reads its `.py` fresh on each spawn,
   so a stop+start (toggle twice) picks up `mcp_bootstrap.py`/`origin_mcp_server.py` edits.
+- **The transport MUST stay stateless, or every Origin restart strands the client.** Symptom:
+  restart Origin, restart the MCP server from the app icon, and the client still can't reach it —
+  tools fail with `MCP error -32602: Received request before initialization was complete` until the
+  user manually reconnects (`/mcp` → reconnect in Claude Code). Cause: a session-bearing transport
+  (legacy SSE, or streamable-HTTP in session mode) gives each connection a `ServerSession` born
+  `NotInitialized` (`mcp/server/session.py:98`), and any request before the `initialize` handshake
+  raises there (`session.py:204`). The sidecar dies with its host Origin, and **Claude Code
+  transparently re-opens the dropped transport but does NOT replay `initialize`** — so every later
+  call lands on a fresh, uninitialized session. Verified empirically against Claude Code 2.1.221
+  with a probe server that restarts mid-session: session-bearing transport → `-32602` on the call
+  after the restart; `stateless_http=True` → the call after the restart just succeeds against the
+  new process, no reconnect. Statelessness is the fix because the SDK stamps a stateless session
+  `Initialized` at construction. Do not "simplify" `origin_mcp_server.py` back to a plain
+  `FastMCP(...)` or `_serve_http()` back to `mcp.sse_app()`.

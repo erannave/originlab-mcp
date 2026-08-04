@@ -25,7 +25,7 @@ Once connected, the client has tools to:
    the first install takes a minute.
 2. **Click the "Origin MCP" app** in the Apps Gallery to start the server. A
    message box confirms it's running. Click again to stop. The server listens on
-   `http://127.0.0.1:8000/sse`.
+   `http://127.0.0.1:8000/mcp`.
 3. **Point your MCP client at the URL** (see below) and have it call
    `connect_origin`.
 
@@ -39,7 +39,7 @@ The app starts the server for you, so the client just connects to the URL:
 ```json
 {
   "mcpServers": {
-    "origin-mcp": { "url": "http://localhost:8000/sse" }
+    "origin-mcp": { "type": "http", "url": "http://localhost:8000/mcp" }
   }
 }
 ```
@@ -61,7 +61,7 @@ A WSL2 client can't reach Windows `localhost`, so the app binds the server in a
 way WSL can reach (it is **not** exposed to your LAN — Windows Firewall still
 blocks inbound on your physical network adapters).
 
-1. Connect to `http://host.docker.internal:8000/sse`.
+1. Connect to `http://host.docker.internal:8000/mcp` (transport: `http`).
 2. Allow the WSL subnet to reach the port. In an **elevated PowerShell**:
    ```powershell
    New-NetFirewallRule -DisplayName "Origin MCP (WSL->host 8000)" -Direction Inbound `
@@ -84,7 +84,7 @@ Origin (this instance)
 manage.py  ── launches (hidden) ──►  sidecar: mcp_bootstrap.py → origin_mcp_server.py
   │  records host PID + a token             │  attaches back to THIS Origin (COM)
   ▼                                         ▼
-                              AI client ──► http://127.0.0.1:8000/sse
+                              AI client ──► http://127.0.0.1:8000/mcp
 ```
 
 The sidecar runs off Origin's UI thread, so the server never freezes Origin, and

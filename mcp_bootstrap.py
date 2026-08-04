@@ -36,7 +36,7 @@ PORT = int(os.environ.get("ORIGIN_MCP_PORT", "8000"))
 
 # Set in main() after import so the shutdown path can release the COM
 # attachment. _OP.detach() MUST be called from the same (main) thread that
-# called op.attach() — see _serve_sse below.
+# called op.attach() — see _serve_http below.
 _OP = None
 
 # Defensive sys.path augmentation: PYTHONPATH from the spawn env is primary, but
@@ -167,27 +167,35 @@ def _release_origin():
         _log(f"[bootstrap] op.detach() failed: {e}")
 
 
-def _serve_sse(mcp, host_pid):
-    """Serve SSE and own the entire shutdown sequence on the MAIN thread. NEVER
-    returns — it os._exit()s.
+def _serve_http(mcp, host_pid):
+    """Serve streamable-HTTP and own the entire shutdown sequence on the MAIN
+    thread. NEVER returns — it os._exit()s.
+
+    The transport is STATELESS (see origin_mcp_server.py) so that a client keeps
+    working across an Origin restart without a manual reconnect. Do not swap this
+    back to mcp.sse_app(): SSE reintroduces per-connection sessions, and Claude
+    Code does not replay `initialize` when it re-opens a dropped transport, so
+    every post-restart tool call fails with -32602.
 
     Why not just flip uvicorn's should_exit and let serve() return so a finally
     can detach? Because uvicorn's graceful shutdown HANGS tearing down long-lived
-    SSE streams (even with force_exit), and asyncio.run()'s own teardown then
+    streams (even with force_exit), and asyncio.run()'s own teardown then
     blocks awaiting those cancelled tasks. serve() routinely failed to return
     inside manage.py's 8s window, so we were hard-killed with COM still attached
     → Origin stuck 'controlled by another application'.
 
     Instead: run serve() as a task and poll the stop conditions INSIDE the loop.
-    Once asked to stop, stop running the loop (without awaiting the SSE teardown),
-    release COM HERE — this is the only thread whose STA apartment owns the
-    Origin reference, so op.detach() actually succeeds — and os._exit(). The OS
-    reclaims the still-open sockets; we never wait on them."""
+    Once asked to stop, stop running the loop (without awaiting the transport
+    teardown), release COM HERE — this is the only thread whose STA apartment
+    owns the Origin reference, so op.detach() actually succeeds — and os._exit().
+    The OS reclaims the still-open sockets; we never wait on them."""
     import asyncio
 
     import uvicorn
 
-    app = mcp.sse_app()
+    # Starlette app whose lifespan runs the StreamableHTTPSessionManager; uvicorn's
+    # default lifespan="auto" drives it, so no extra wiring is needed here.
+    app = mcp.streamable_http_app()
     config = uvicorn.Config(
         app,
         host=mcp.settings.host,
@@ -258,7 +266,7 @@ def _legacy_watchdog(host_pid):
 
 def main():
     global _OP
-    transport = sys.argv[1] if len(sys.argv) > 1 else "sse"
+    transport = sys.argv[1] if len(sys.argv) > 1 else "http"
     host_pid, token = _read_handshake()
 
     # Clear any stale stop request from a previous run.
@@ -286,10 +294,12 @@ def main():
     _write_lock()
     _log(f"[bootstrap] starting Origin MCP sidecar "
          f"(transport={transport}, host PID={host_pid}).")
-    if transport == "sse":
+    # "sse" is accepted as a legacy alias so an older cached manage.py (Origin's
+    # embedded Python caches it until restart) still spawns the HTTP sidecar.
+    if transport in ("http", "sse"):
         # Owns shutdown + COM release + process exit on the main thread.
-        _serve_sse(mcp, host_pid)
-        return  # not reached: _serve_sse os._exit()s
+        _serve_http(mcp, host_pid)
+        return  # not reached: _serve_http os._exit()s
     # Legacy stdio path (client-spawned, not Origin-managed).
     threading.Thread(target=_legacy_watchdog, args=(host_pid,), daemon=True).start()
     try:

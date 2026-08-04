@@ -254,7 +254,7 @@ def start():
     try:
         logf = open(LOG, "a", encoding="utf-8")
         proc = subprocess.Popen(
-            [pyexe, BOOTSTRAP, "sse"],
+            [pyexe, BOOTSTRAP, "http"],
             env=env,
             cwd=HERE,
             stdout=logf,
