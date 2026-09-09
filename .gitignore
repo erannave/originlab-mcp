@@ -9,3 +9,7 @@ startup.log
 stop.request
 # Generated OPX output
 *.opx
+# Dropped into the app root by the OPX installer (it is packed from packaging/).
+# NEVER treat it as a source file here: a package.ini in the root makes Code
+# Builder's Generate bundle vendor/ + .git. See "Building the OPX" in CLAUDE.md.
+package.ini

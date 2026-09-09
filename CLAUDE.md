@@ -187,6 +187,15 @@ uninstall. Verify both are present every time you re-package.
 - **Never name the server module `server.py`** — `vendor/win32com` exposes a top-level `server`
   package that shadows it. Hence `origin_mcp_server.py`.
 - **`vendor/` is untracked/gitignored** (platform/version-specific, ~7800 files; auto-installed).
+- **Installing the OPX OVERWRITES the dev tree** — the app folder IS the install location, so any
+  uncommitted edit to a shipped file is silently reverted to the packaged version. Commit before
+  installing; recover with `git restore <file>`. Symptom: the sidecar keeps serving old behaviour
+  after a toggle, and the file's mtime jumps back to the packaged file's date. Corollary: rebuild
+  the OPX BEFORE installing, never after — a `build.ogs` run following an install just re-packages
+  the version you were trying to replace.
+- **Every install drops a `package.ini` into the app root** (it is packed from `packaging/`, and
+  `mkOPX` packs the whole staging folder). It is gitignored. Delete it before using the Code
+  Builder Generate fallback, or Generate will bundle `vendor/` + `.git`.
 - **Building the OPX** has its own section above. The trap: a `package.ini` in the ROOT makes
   `mkOPX`/Generate pack the whole tree — `vendor/`+`.git` (~93MB → Origin hangs). The manifest
   lives in `packaging/package.ini` (incl. the `AfterInstall`/`BeforeUninstall` hooks) and is
