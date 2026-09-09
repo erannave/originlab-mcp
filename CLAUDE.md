@@ -175,6 +175,15 @@ uninstall. Verify both are present every time you re-package.
   skips vendoring them. The sidecar then works under that Origin version but crashes with
   `ModuleNotFoundError` under a freshly installed one (this broke Origin 2026b while 2026 worked —
   its new `103b\PyPackage\Py3` was empty). `DEP_MARKERS` now checks the known leak-prone names.
+- **The LabTalk traps are duplicated on purpose, but only a curated subset.**
+  `origin_mcp_server.py` carries two one-line trap warnings in the `run_labtalk` /
+  `get_labtalk_value` docstrings and a fuller five-item `origin://labtalk-traps` resource.
+  Docstrings are the only mechanism with guaranteed reach — they ship in the tool schema on every
+  request, whereas `instructions=` is injected at the client's discretion and a resource is
+  pull-based (nobody fetches what they don't know they need). The source of truth stays
+  `ORIGIN-C.md` in the Batalyse repo; do NOT copy the rest of it here — the bulk covers compiling
+  Origin C `.cpp` sources, which is unreachable through this server, and a second full copy would
+  drift. Keep the subset short: tool descriptions are paid by every client on every request.
 - **Never name the server module `server.py`** — `vendor/win32com` exposes a top-level `server`
   package that shadows it. Hence `origin_mcp_server.py`.
 - **`vendor/` is untracked/gitignored** (platform/version-specific, ~7800 files; auto-installed).

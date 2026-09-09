@@ -29,12 +29,26 @@ _PORT = int(os.environ.get("ORIGIN_MCP_PORT", "8000"))
 # and stamps it Initialized at construction (mcp/server/session.py:98), so there
 # is no session to lose and nothing to re-handshake. json_response=True returns
 # a plain JSON body per POST rather than a single-event SSE stream.
+# Sent to the client in the `initialize` result. Whether it reaches the model is
+# up to the client — some inject it into the system prompt, some ignore it — so
+# it is a bonus, not the delivery mechanism. The traps that MUST be seen live in
+# the docstrings of run_labtalk / get_labtalk_value, which ship in the tool
+# schema on every request.
+_INSTRUCTIONS = """This server drives a live OriginLab Origin instance over COM.
+
+LabTalk has a family of traps that return a wrong answer silently, fast, with no
+error: aggregates over qualified column references, cumulative sum(), and
+Set-Column-Values row subsets. Read the origin://labtalk-traps resource before
+writing non-trivial LabTalk, and never accept an aggregate without checking the
+value came back non-missing."""
+
 mcp = FastMCP(
     "Origin-MCP",
     host=_HOST,
     port=_PORT,
     stateless_http=True,
     json_response=True,
+    instructions=_INSTRUCTIONS,
 )
 
 
@@ -132,6 +146,11 @@ def run_labtalk(script: str) -> str:
     only the boolean result is reported. To capture a textual result, write it
     into a LabTalk string variable inside the script and read it back with
     get_labtalk_value(..., as_string=True).
+
+    TRAPS (silent wrong answers, no error raised — read origin://labtalk-traps):
+      • An aggregate over a QUALIFIED column ref returns NANUM without reading
+        the data: bind a range first — `range r = [Book]Sheet!col(2); total(r)`.
+      • `sum()` is a CUMULATIVE sum; the grand total is `total()`.
     """
     ok = op.lt_exec(script)
     if ok:
@@ -157,6 +176,10 @@ def get_labtalk_value(expression: str, as_string: bool = False) -> str:
         get_labtalk_value("total(col(A))")     -> column sum
         get_labtalk_value("mystr$")            -> contents of string var mystr$
         get_labtalk_value("mystr", as_string=True)
+
+    TRAP: `total([Book]Sheet!col(2))` returns NANUM in ~0s with NO error — an
+    aggregate over a qualified column ref never scans the data. Bind a range
+    inside run_labtalk first, then read it back. See origin://labtalk-traps.
     """
     if as_string or expression.rstrip().endswith('$'):
         return op.get_lt_str(expression)
@@ -267,6 +290,74 @@ def get_worksheet_data(worksheet_name: str, col=None, as_dataframe: bool = False
         return ws.to_list(col)
     df = ws.to_df()
     return df.to_dict(orient='list')
+
+
+# The LabTalk/data-layer subset of the Batalyse repo's ORIGIN-C.md — the items
+# that fire through THIS server (several were originally found through it, and
+# are marked "Verified via origin-mcp" there). Deliberately NOT the whole file:
+# the bulk of it covers compiling Origin C .cpp sources in that repo, which is
+# not reachable from here, and a second copy of it would only drift.
+#
+# ORIGIN-C.md remains the source of truth. Keep this list curated and short.
+_LABTALK_TRAPS = """# LabTalk traps when driving Origin through this server
+
+Every item below returns a WRONG answer silently — no exception, no error text,
+and usually faster than the correct call. Speed is not evidence of success.
+
+## 1. Aggregates over a qualified column reference return NANUM
+`total([Book]Sheet!col(2))` / `mean(...)` / `max(...)` evaluate to NaN in ~0s
+without ever scanning the data; lt_exec still reports success. Bind a range
+object first:
+
+    range r = [Book]Sheet!col(2); double v = total(r);
+
+(0.013s over 694,329 rows on Origin 10.35.) Activating the sheet and using a
+bare `col(2)` also works. The trap is that `wks.col2.nRows` on the SAME
+qualified reference works fine, so a probe that reads row counts looks healthy
+while every aggregate is quietly NaN.
+
+## 2. `sum()` is a cumulative sum, not a total
+In a Set-Column-Values formula, `colC = sum(A)` fills row i with A[1]+...+A[i].
+The scalar grand total is `total(A)`. So `sum(D!X[a:b])` gives the cumulative
+vector of the subrange, never the single sum. Cumulative `sum()` also skips
+missing values, but the cumulative value AT a missing row is still NANUM.
+
+## 3. Set-Column-Values row subsets do not bind per output row
+`mean(D!Pot[C:D])` (C/D being start/end-row columns) binds to the FIRST row's
+C:D for ALL output rows. Qualifying as `[SD!C:SD!D]` does not fix it. Scalar
+cell refs DO bind per row (`D!col[SD!D]`, `D!col[max(SD!C-1,1)]`), so compute a
+per-step aggregate as a cell difference over a cumulative column:
+
+    (D!cum[SD!D] - D!cum[max(SD!C-1,1)]) / (D!Time[SD!D] - D!Time[max(SD!C-1,1)])
+
+## 4. The numeric import separator is a GLOBAL setting
+`is_numeric("1,234")` is false, yet the importer consumes the comma as a
+THOUSANDS separator under `system.numeric.importseparator = 1`, inflating each
+column by 10^decimals — silently, and by a different factor per column. Detect
+the separator on the data actually being imported (not one probe row) and
+restore the setting on every exit path, or the next dot-decimal file is
+mis-scaled. Tell for a genuine dot-decimal row: a numeric token containing '.'.
+
+## 5. Do not hand-roll per-cell loops
+Origin C is interpreted: a per-cell loop costs ~10.8us/cell regardless of data
+size (269.96s for 694,329 x 36). Reading the same cells out over COM and
+reducing them in numpy took 22.35s; native aggregates via a range object cost
+0.247us/cell. Reach for native X-Functions and LabTalk aggregates.
+
+Source: ORIGIN-C.md in the Batalyse repo (full version also covers compiling
+Origin C sources, which is out of scope for this server).
+"""
+
+
+@mcp.resource("origin://labtalk-traps", mime_type="text/markdown")
+def labtalk_traps() -> str:
+    """LabTalk pitfalls that silently return wrong results through this server.
+
+    Read this before writing non-trivial LabTalk: aggregates over qualified
+    column references, cumulative sum() vs total(), Set-Column-Values row
+    subsets, the global numeric import separator, and per-cell loop costs.
+    """
+    return _LABTALK_TRAPS
 
 
 if __name__ == "__main__":
