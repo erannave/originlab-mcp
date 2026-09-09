@@ -90,28 +90,42 @@ curl -s -X POST http://host.docker.internal:8000/mcp \
 
 ## Building the OPX
 
-Packaging goes through **Code Builder**: right-click the `OriginMCP` app folder in the Workspace
-window → **Generate…** → Package Manager → `File ▸ Save` → `OriginMCP.opx`.
+**Primary route — `packaging/build.ogs`.** From Origin's Script Window:
 
-- **There is intentionally NO `package.ini` in the folder.** Code Builder's Generate IGNORES
-  `package.ini`'s `[Files] SourcePath`, so a `package.ini` present here makes Origin bundle the
-  ENTIRE tree — `vendor/` (~112MB) + `.git` (~32MB) — producing a ~93MB OPX and hanging Origin
-  (you must force-close). Without it, Generate uses Code Builder's explicit file list
-  (`..\CBPackages.ini`).
-- **Ship exactly these files** (the Generate file list): `launch.ogs`, `manage.py`,
+```
+run.section("C:\Users\<user>\AppData\Local\OriginLab\Apps\OriginMCP\packaging\build.ogs", main);
+```
+
+It runs `packaging/stage.py` (copies the shipped files + `packaging/package.ini` into a clean temp
+folder) and then the `mkOPX` X-Function, which writes `packaging/OriginMCP.opx`. No dialog, and the
+manifest is version-controlled in `packaging/package.ini` instead of living only in Code Builder's
+remembered dialog state — which is why the 1.1 build had nowhere for a fix to live.
+
+- **The `package.ini` lives in `packaging/`, NEVER in the repo root.** `mkOPX` (and Code Builder's
+  Generate) IGNORE `[Files] SourcePath` and pack the ENTIRE folder that contains `package.ini`
+  (`OPXFile::InitFromIni` → `AddFolder(GetFilePath(ini))`). In the root that means `vendor/`
+  (~112MB) + `.git` (~32MB) — a ~93MB OPX that hangs Origin (you must force-close). Hence the
+  staging folder: it holds exactly the shipped files and the manifest, nothing else.
+- **Ship exactly these files** (`SHIPPED` in `packaging/stage.py`): `launch.ogs`, `manage.py`,
   `mcp_bootstrap.py`, `origin_mcp_server.py`, `AfterInstall.ogs`, `BeforeUninstall.ogs`,
-  `AppIcon.png`, `icon.svg`, `requirements.txt`, `README.md`. NOT `vendor/`, `.git`,
+  `AppIcon.png`, `icon.svg`, `requirements.txt`, `README.md`, `manual.html`. NOT `vendor/`, `.git`,
   `__pycache__`, logs or runtime artifacts. `vendor/` is rebuilt on install by `AfterInstall.ogs`.
+- **`[Origin] Version=10.10` must stay ≥ the Python floor.** `manage.py setup()` refuses to install
+  on Python < 3.10 (`mcp` requires it); 10.10 is Origin 2024, the oldest release verified to bundle
+  Python 3.11. Lowering it would let Origin accept an install that the version gate then rejects.
+  (10.10 and 10.1 are the same number — Origin renders `OriginVerReq` with two decimals.)
 
-**Manifest fields to enter in the Generate dialog.** These used to live in `package.ini`; with it
-removed, set/verify them in the dialog the first time you package (Code Builder remembers them for
-subsequent Generates):
+**Fallback route — Code Builder Generate.** Right-click the `OriginMCP` app folder in the Workspace
+window → **Generate…** → Package Manager → `File ▸ Save` → `OriginMCP.opx`. It ignores
+`packaging/package.ini` and uses its own explicit file list (`..\CBPackages.ini`) plus the fields
+remembered in its dialog, so the manifest below must be entered/verified there by hand — keep it in
+sync with `packaging/package.ini`:
 
 | Field                | Value |
 |----------------------|-------|
 | Name                 | `OriginMCP` — no space, so installs match the dev folder |
 | Description          | `Runs an MCP (Model Context Protocol) server as a background sidecar so AI clients can drive this Origin instance.` |
-| Version / Author     | `1` / `Batalyse GmbH` |
+| Version / Author     | `1.20` / `Batalyse GmbH` |
 | Origin version / Pro | `10.10` / No |
 | Icon                 | `AppIcon.png` |
 | Launch Script        | `launch.ogs` |
@@ -132,7 +146,23 @@ uninstall. Verify both are present every time you re-package.
 
 - **`originpro` in Origin's `PyPackage` is embedded-only.** Externally `import originpro` needs
   `OriginExt` (COM fallback) + `comtypes`, which aren't shipped. `manage.py setup()` pip-installs
-  `OriginExt comtypes mcp fastmcp uvicorn starlette` into `vendor/`.
+  `OriginExt comtypes mcp uvicorn starlette` into `vendor/`.
+- **The `DEPS` upper bounds are load-bearing.** `mcp` is pinned `<2`: mcp 2.x renamed `FastMCP` to
+  `MCPServer` and left `mcp.server.fastmcp` a stub that raises `ModuleNotFoundError`, so an
+  unpinned `mcp` resolves 2.x on any machine installing today and the sidecar dies on its first
+  import. `starlette<1`/`uvicorn<1` guard the same failure one level down. mcp 1.x is still
+  actively released in parallel with 2.x, so this is a stable position, not a stopgap.
+- **`DEP_MARKERS` must only name packages the sidecar imports.** A marker for something merely
+  transitive can stop being installed when someone else's dependency tree is reorganised, and then
+  every clean install is reported as a failure. That is what happened to the old `sniffio` marker
+  (a canary for `anyio`, which dropped the dependency in 4.10) — it broke every install on a
+  machine other than the dev box with "dependency install failed (rc=0)".
+- **`vendor/.deps` is what makes a pin change take effect.** pip `--target --upgrade` layers a new
+  version OVER the old one without removing it, and a tree built by an earlier, unpinned `DEPS`
+  still contains every marker folder — so on markers alone `setup()` would be skipped forever and
+  the sidecar would keep booting against mcp 2.x. The stamp records the exact `DEPS` list that
+  built `vendor/`; changing `DEPS` invalidates it and forces a wipe-and-reinstall. `setup()`
+  refuses to wipe while the sidecar is running (it holds `vendor/pywin32_system32` DLLs open).
 - **pip `--target vendor` does NOT run pywin32's post-install**, so `import pywintypes` (pulled in
   by `mcp`) fails. `mcp_bootstrap.py` manually adds `vendor/win32`, `win32/lib`, `win32com`,
   `win32comext`, `Pythonwin` to `sys.path` and `os.add_dll_directory(vendor/pywin32_system32)`.
@@ -145,10 +175,10 @@ uninstall. Verify both are present every time you re-package.
 - **Never name the server module `server.py`** — `vendor/win32com` exposes a top-level `server`
   package that shadows it. Hence `origin_mcp_server.py`.
 - **`vendor/` is untracked/gitignored** (platform/version-specific, ~7800 files; auto-installed).
-- **Building the OPX** has its own section above. The trap: a `package.ini` in the folder makes
-  Code Builder's Generate ignore the file list and bundle `vendor/`+`.git` (~93MB → Origin hangs).
-  No `package.ini` here; the manifest (incl. the `AfterInstall`/`BeforeUninstall` hooks) is entered
-  in the Generate dialog.
+- **Building the OPX** has its own section above. The trap: a `package.ini` in the ROOT makes
+  `mkOPX`/Generate pack the whole tree — `vendor/`+`.git` (~93MB → Origin hangs). The manifest
+  lives in `packaging/package.ini` (incl. the `AfterInstall`/`BeforeUninstall` hooks) and is
+  packaged from a clean staging folder by `packaging/build.ogs`.
 - **`manage.py stop()` must never block Origin's STA thread** (no sleep-wait) — otherwise the
   sidecar's `op.detach()` COM call can't be serviced and deadlocks → force-kill → Origin stuck
   "controlled". See COM lifecycle.

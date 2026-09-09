@@ -50,23 +50,34 @@ LOG = os.path.join(HERE, "sidecar.log")
 STOP = os.path.join(HERE, "stop.request")
 BOOTSTRAP = os.path.join(HERE, "mcp_bootstrap.py")
 VENDOR = os.path.join(HERE, "vendor")
+# Records the exact DEPS pin list that built VENDOR/. See _deps_present().
+DEPS_STAMP = os.path.join(VENDOR, ".deps")
 # Keep in sync with origin_mcp_server.py / mcp_bootstrap.py: the actual bound
 # port is ORIGIN_MCP_PORT (default 8000). Read it here so status/URL and the
 # lock file reflect the real port, and propagate it to the child env below.
 PORT = int(os.environ.get("ORIGIN_MCP_PORT", "8000"))
-URL = f"http://127.0.0.1:{PORT}/sse"
+URL = f"http://127.0.0.1:{PORT}/mcp"
 
 # Packages the EXTERNAL sidecar needs that Origin's bundled PyPackage lacks.
 # OriginExt is the COM module originpro falls back to for external op.attach()
 # (the embedded _PyOrigin.pyd only loads inside Origin); comtypes is its COM
 # backend. The rest are the MCP server stack. Installed into VENDOR/ via pip and
 # put first on the sidecar's PYTHONPATH.
-DEPS = ["OriginExt", "comtypes", "mcp", "uvicorn", "starlette"]
+#
+# The upper bounds are load-bearing, not hygiene: this codebase targets mcp 1.x
+# (origin_mcp_server.py imports mcp.server.fastmcp.FastMCP; mcp 2.x renamed it
+# MCPServer and left mcp.server.fastmcp a stub that raises ModuleNotFoundError),
+# so an unpinned `mcp` silently resolves 2.x on any machine installing today and
+# the sidecar dies on its first import. starlette/uvicorn carry the same risk one
+# level down (mcp 1.x asks for starlette>=0.27 with no ceiling).
+DEPS = ["OriginExt", "comtypes", "mcp<2", "uvicorn<1", "starlette<1"]
 # Folder names that must exist under VENDOR for deps to be considered present.
-# idna/sniffio/attrs are transitive deps that other Origin versions may already
-# provide via ProgramData\OriginLab\<ver>\PyPackage\Py3 — if they are missing
-# from VENDOR the sidecar only breaks on a *fresh* Origin version, so check them.
-DEP_MARKERS = ["OriginExt", "comtypes", "mcp", "idna", "sniffio", "attrs"]
+# Only packages the sidecar actually imports: a marker for something merely
+# transitive can stop being installed when someone else's dependency tree is
+# reorganised, and then every clean install reports as failed. That is exactly
+# what happened to the previous `sniffio` marker (a canary for anyio, which
+# dropped the dependency in 4.10) — hence also `idna`/`attrs` are gone.
+DEP_MARKERS = ["OriginExt", "comtypes", "mcp", "anyio", "starlette", "uvicorn"]
 
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -75,6 +86,7 @@ try:
     import ctypes
     import glob
     import random
+    import shutil
     import subprocess
     import time
 
@@ -124,8 +136,45 @@ def _child_env(exe_dir):
     return env
 
 
-def _deps_present():
+def _markers_present():
     return all(os.path.isdir(os.path.join(VENDOR, m)) for m in DEP_MARKERS)
+
+
+def _stamp_matches():
+    """True if VENDOR/ was built by the CURRENT DEPS pin list."""
+    try:
+        with open(DEPS_STAMP, "r", encoding="utf-8") as f:
+            return f.read().strip() == "\n".join(DEPS)
+    except Exception:
+        return False
+
+
+def _deps_present():
+    """Deps count as present only if the marker folders exist AND the stamp says
+    they were installed from today's DEPS.
+
+    The stamp is what makes a pin change actually take effect. A machine that
+    ran an earlier, unpinned build has mcp 2.x in VENDOR/ — and every marker
+    folder above exists in that tree. On markers alone setup() would be skipped
+    forever and the sidecar would keep booting against mcp 2.x. Changing DEPS
+    invalidates the stamp and forces a clean reinstall.
+    """
+    return _markers_present() and _stamp_matches()
+
+
+def _python_version(pyexe, env):
+    """(major, minor) of Origin's bundled python.exe, or None if unknown."""
+    try:
+        proc = subprocess.run(
+            [pyexe, "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
+            env=env, cwd=HERE, capture_output=True, text=True,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        major, minor = (proc.stdout or "").strip().split(".")[:2]
+        return int(major), int(minor)
+    except Exception:
+        _slog("python version probe failed:\n" + traceback.format_exc())
+        return None
 
 
 def setup():
@@ -136,8 +185,26 @@ def setup():
     if not os.path.isfile(pyexe):
         _msg(f"Origin Python not found at {pyexe}")
         return False
-    os.makedirs(VENDOR, exist_ok=True)
     env = _child_env(exe_dir)
+
+    # mcp requires Python 3.10+. Without this gate pip fails deep in the
+    # resolver and the user gets pages of unrelated output in startup.log.
+    ver = _python_version(pyexe, env)
+    if ver and ver < (3, 10):
+        _msg(f"Origin's Python is {ver[0]}.{ver[1]}, but 3.10+ is required "
+             f"(the mcp package). Please use a newer Origin release.")
+        return False
+
+    # Wipe VENDOR/ first. pip --target --upgrade layers a new version OVER the
+    # old one WITHOUT removing it, so an in-place reinstall leaves duplicate
+    # dist-infos and lets an old, wrongly-pinned tree keep shadowing the new one.
+    pid = is_running()
+    if pid:
+        _msg(f"stop the server first (PID {pid}) — the running sidecar holds "
+             f"files in vendor/ open, so they cannot be reinstalled")
+        return False
+    shutil.rmtree(VENDOR, ignore_errors=True)
+    os.makedirs(VENDOR, exist_ok=True)
     # --ignore-installed is required: the child env's PYTHONPATH exposes the
     # host Origin's ProgramData\...\PyPackage\Py3 packages, and without it pip
     # treats those as "already satisfied" and silently skips vendoring them —
@@ -157,10 +224,23 @@ def setup():
     _slog(f"pip rc={proc.returncode}")
     _slog("pip stdout:\n" + (proc.stdout or ""))
     _slog("pip stderr:\n" + (proc.stderr or ""))
-    if proc.returncode == 0 and _deps_present():
+    if proc.returncode == 0 and _markers_present():
+        # Stamp LAST: it is the record that this exact pin list built this tree.
+        try:
+            with open(DEPS_STAMP, "w", encoding="utf-8") as f:
+                f.write("\n".join(DEPS) + "\n")
+        except Exception as e:
+            _slog(f"could not write deps stamp: {e}")
+            _msg("dependencies installed but the stamp could not be written; "
+                 "they will be reinstalled on every start")
+            return True
         _msg("dependencies installed")
         return True
-    _msg(f"dependency install failed (rc={proc.returncode}); see startup.log")
+    missing = [m for m in DEP_MARKERS
+               if not os.path.isdir(os.path.join(VENDOR, m))]
+    _slog("missing dep markers: " + (", ".join(missing) or "(none)"))
+    _msg(f"dependency install failed (rc={proc.returncode}, missing: "
+         f"{', '.join(missing) or 'none'}); see startup.log")
     return False
 
 
@@ -226,9 +306,10 @@ def start():
         _msg(f"mcp_bootstrap.py missing at {BOOTSTRAP}")
         return
 
-    # First run: install the sidecar's dependencies (blocks briefly).
+    # First run — or after a pin change (the vendor/.deps stamp no longer matches
+    # DEPS) — install the sidecar's dependencies. Blocks briefly.
     if not _deps_present():
-        _msg("installing dependencies (first run, may take a minute)…")
+        _msg("installing dependencies (may take a minute)…")
         if not setup():
             return
 

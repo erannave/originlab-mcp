@@ -1,0 +1,33 @@
+[main]
+	//	Build OriginMCP.opx from the repo, without packaging the live app folder.
+	//
+	//	Run from Origin's Script Window:
+	//	  run.section("C:\Users\<user>\AppData\Local\OriginLab\Apps\OriginMCP\packaging\build.ogs", main);
+	//
+	//	Paths are written as %@A + OriginMCP (Apps root + app folder) rather than
+	//	%@A%@X: %@X is only set while Origin is running the app, and this script
+	//	is invoked by hand.
+	//
+	//	Two steps, because each tool does one of them well:
+	//	  1. stage.py copies the shipped files + packaging\package.ini into a
+	//	     clean temp folder — mkOPX packs the WHOLE folder that holds
+	//	     package.ini, so vendor\, .git\, __pycache__\ and the runtime
+	//	     artifacts must not be anywhere in it;
+	//	  2. mkOPX builds the OPX from that folder.
+	//	The OPX lands next to this script, in packaging\OriginMCP.opx.
+	MCP_PKG_OK = 0;
+	MCP_PKG_DIR$ = "";
+	run -pyf "%@AOriginMCP\packaging\stage.py";
+	if( MCP_PKG_OK != 1 )
+	{
+		type -b "OriginMCP package: staging failed - nothing was built.";
+		return;
+	}
+
+	//	act:=0 -> make the OPX (act:=1 would instead rewrite package.ini).
+	//	ini:= is what selects the source folder: mkOPX ignores [Files] SourcePath
+	//	and packs the folder containing the ini file it is given.
+	string strIni$ = MCP_PKG_DIR$ + "\package.ini";
+	string strOpx$ = "%@AOriginMCP\packaging\OriginMCP.opx";
+	mkOPX act:=0 ini:=strIni$ opx:=strOpx$;
+	return;

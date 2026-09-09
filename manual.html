@@ -337,7 +337,7 @@
       <h2>Quick start</h2>
       <ol class="body">
         <li><strong>Install</strong> the <code>OriginMCP.opx</code> (double-click it, or drag it onto Origin). On install, Origin downloads the server's Python dependencies in the background — the first install takes a minute.</li>
-        <li><strong>Click the "Origin MCP" app</strong> in the Apps Gallery to start the server. A message box confirms it's running. Click again to stop. The server listens on <code>http://127.0.0.1:8000/sse</code>.</li>
+        <li><strong>Click the "Origin MCP" app</strong> in the Apps Gallery to start the server. A message box confirms it's running. Click again to stop. The server listens on <code>http://127.0.0.1:8000/mcp</code>.</li>
         <li><strong>Point your MCP client at the URL</strong> (see below) and have it call <code>connect_origin</code>.</li>
       </ol>
       <p>
@@ -353,7 +353,7 @@
         <button class="copy-btn" type="button">Copy</button>
 <pre><code>{
   "mcpServers": {
-    "origin-mcp": { "url": "http://localhost:8000/sse" }
+    "origin-mcp": { "url": "http://localhost:8000/mcp" }
   }
 }</code></pre>
       </div>
@@ -382,7 +382,7 @@
         Windows Firewall still blocks inbound on your physical network adapters).
       </p>
       <ol class="body">
-        <li>Connect to <code>http://host.docker.internal:8000/sse</code>.</li>
+        <li>Connect to <code>http://host.docker.internal:8000/mcp</code>.</li>
         <li>
           Allow the WSL subnet to reach the port. In an <strong>elevated PowerShell</strong>:
           <div class="codeblock">
@@ -413,7 +413,7 @@
 manage.py  ── launches (hidden) ──►  sidecar: mcp_bootstrap.py → origin_mcp_server.py
   │  records host PID + a token             │  attaches back to THIS Origin (COM)
   ▼                                         ▼
-                              AI client ──► http://127.0.0.1:8000/sse</pre>
+                              AI client ──► http://127.0.0.1:8000/mcp</pre>
       </div>
       <p>
         The sidecar runs off Origin's UI thread, so the server never freezes Origin,
