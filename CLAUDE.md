@@ -104,6 +104,21 @@ file it is reading. No dialog, and the
 manifest is version-controlled in `packaging/package.ini` instead of living only in Code Builder's
 remembered dialog state — which is why the 1.1 build had nowhere for a fix to live.
 
+- **`mkOPX` must be called with NO `ini:=` — from the staging folder as the current directory.**
+  It stores each packed file under the path it will be extracted to, relative to the Apps root:
+  a correct App OPX contains `OriginMCP\launch.ogs` (compare `Theme Preview\OlocalC.txt` in any
+  shipped app). That base comes from `AddFolder(m_srcPath, lpcszSrcPath)`, and `mkOPX` only supplies
+  `lpcszSrcPath` in the no-`ini:=`/no-`app:=` branch, which reads `_getcwd()` and takes its parent.
+  Pass `ini:=` and the base is NULL, so every entry is stored as its **full source path minus the
+  drive letter** — the installer then dutifully creates
+  `Apps\Users\<user>\AppData\Local\Temp\OriginMCP-pkg\OriginMCP\…` and the app folder gets
+  nothing: no icon, clicking the app does nothing, and the only reason anything appeared to work was
+  that the files were still there from git. This shipped once. `stage.py` therefore `os.chdir()`s
+  Origin into the staging folder (it runs in Origin's process, so `_getcwd()` sees it) and
+  `build.ogs` restores the cwd afterwards. There is no LabTalk `cd` command — none of Origin's 81
+  shipped `.ogs` files use one — so the chdir has to happen in Python.
+- **The staging folder must be named `OriginMCP`.** Its name becomes the stored path prefix, and
+  therefore the folder the installer extracts into.
 - **The `package.ini` lives in `packaging/`, NEVER in the repo root.** `mkOPX` (and Code Builder's
   Generate) IGNORE `[Files] SourcePath` and pack the ENTIRE folder that contains `package.ini`
   (`OPXFile::InitFromIni` → `AddFolder(GetFilePath(ini))`). In the root that means `vendor/`
