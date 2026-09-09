@@ -19,6 +19,7 @@ Responsibilities beyond a bare server.py:
 """
 
 import ctypes
+import glob
 import os
 import sys
 import threading
@@ -44,9 +45,17 @@ _OP = None
 # interpreter location so imports still resolve.
 _pydlls = os.path.dirname(sys.executable)             # <exeDir>\64bit\PyDLLs
 _exe_dir = os.path.dirname(os.path.dirname(_pydlls))  # <exeDir>
+# Glob the stdlib zip rather than hardcoding python311.zip: the name tracks the
+# Python version Origin bundles and WILL change (Origin 2024..2026b all ship
+# 3.11, an earlier one shipped 3.8). manage.py:_child_env does the same, so a
+# hardcoded name here would silently diverge from the spawn env on a future
+# Origin and only break the hand-launched debug path. Fall back to the current
+# name if the glob finds nothing, so behaviour never gets worse than before.
+_zips = glob.glob(os.path.join(_exe_dir, "python*.zip"))
+_pyzip = _zips[0] if _zips else os.path.join(_exe_dir, "python311.zip")
 for _p in (
-    os.path.join(_exe_dir, "python311.zip"),
-    os.path.join(_exe_dir, "python311.zip", "site-packages"),
+    _pyzip,
+    os.path.join(_pyzip, "site-packages"),
     _pydlls,
 ):
     if _p not in sys.path:
