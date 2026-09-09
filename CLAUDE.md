@@ -97,7 +97,10 @@ run.section("C:\Users\<user>\AppData\Local\OriginLab\Apps\OriginMCP\packaging\bu
 ```
 
 It runs `packaging/stage.py` (copies the shipped files + `packaging/package.ini` into a clean temp
-folder) and then the `mkOPX` X-Function, which writes `packaging/OriginMCP.opx`. No dialog, and the
+folder) and then the `mkOPX` X-Function, which writes `OriginMCP.opx` into the **User Files Folder**
+(`%Y`, i.e. `Documents\OriginLab\User Files\`). Deliberately not inside the app folder: installing
+an OPX that lives under `Apps\OriginMCP\` asks Origin to overwrite the folder holding the package
+file it is reading. No dialog, and the
 manifest is version-controlled in `packaging/package.ini` instead of living only in Code Builder's
 remembered dialog state — which is why the 1.1 build had nowhere for a fix to live.
 

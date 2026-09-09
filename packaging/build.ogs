@@ -14,7 +14,10 @@
 	//	     package.ini, so vendor\, .git\, __pycache__\ and the runtime
 	//	     artifacts must not be anywhere in it;
 	//	  2. mkOPX builds the OPX from that folder.
-	//	The OPX lands next to this script, in packaging\OriginMCP.opx.
+	//
+	//	The OPX lands in the User Files Folder (%Y), NOT inside the app folder:
+	//	installing an OPX that sits under Apps\OriginMCP\ means asking Origin to
+	//	overwrite the folder the package file itself lives in.
 	MCP_PKG_OK = 0;
 	MCP_PKG_DIR$ = "";
 	run -pyf "%@AOriginMCP\packaging\stage.py";
@@ -28,6 +31,6 @@
 	//	ini:= is what selects the source folder: mkOPX ignores [Files] SourcePath
 	//	and packs the folder containing the ini file it is given.
 	string strIni$ = MCP_PKG_DIR$ + "\package.ini";
-	string strOpx$ = "%@AOriginMCP\packaging\OriginMCP.opx";
+	string strOpx$ = "%YOriginMCP.opx";
 	mkOPX act:=0 ini:=strIni$ opx:=strOpx$;
 	return;
